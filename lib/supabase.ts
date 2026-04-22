@@ -1,5 +1,8 @@
+import { createBrowserClient, createServerClient } from "@supabase/ssr";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
 
+export type Role = "admin" | "submitter" | "customer";
 export type ShoeStatus = "upcoming" | "available" | "sold";
 
 export type Shoe = {
@@ -15,10 +18,28 @@ export type Shoe = {
   created_at: string;
 };
 
+export type Profile = {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  role: Role;
+  created_at: string;
+};
+
+export type Interest = {
+  id: string;
+  shoe_id: string;
+  user_id: string;
+  size: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+// Browser client — used from client components.
 let browser: SupabaseClient | null = null;
 export function supabaseBrowser(): SupabaseClient {
   if (!browser) {
-    browser = createClient(
+    browser = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
@@ -26,7 +47,34 @@ export function supabaseBrowser(): SupabaseClient {
   return browser;
 }
 
-export function supabaseServer(): SupabaseClient {
+// Server client with the user's session (cookie-aware). Use in Server Components,
+// Route Handlers, and middleware wrappers. Do NOT use for privileged writes —
+// RLS still applies.
+export function supabaseServer() {
+  const store = cookies();
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => store.getAll(),
+        setAll: (items) => {
+          try {
+            items.forEach(({ name, value, options }) =>
+              store.set(name, value, options)
+            );
+          } catch {
+            // Called from a Server Component — cookies are read-only. Safe to ignore.
+          }
+        },
+      },
+    }
+  );
+}
+
+// Service-role client for privileged writes that must bypass RLS
+// (e.g., scraper insert, inviting users). Never expose to the browser.
+export function supabaseService(): SupabaseClient {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,

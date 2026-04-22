@@ -1,4 +1,5 @@
-import { supabaseServer, type Shoe } from "@/lib/supabase";
+import { supabaseService, type Shoe } from "@/lib/supabase";
+import { getSessionInfo } from "@/lib/auth";
 import { ShoeCard } from "@/components/ShoeCard";
 
 export const dynamic = "force-dynamic";
@@ -6,7 +7,7 @@ export const revalidate = 0;
 
 async function getShoes(): Promise<Shoe[]> {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return [];
-  const db = supabaseServer();
+  const db = supabaseService();
   const { data } = await db
     .from("shoes")
     .select("*")
@@ -14,8 +15,23 @@ async function getShoes(): Promise<Shoe[]> {
   return (data as Shoe[]) ?? [];
 }
 
+async function getMyInterestShoeIds(userId: string): Promise<Set<string>> {
+  const db = supabaseService();
+  const { data } = await db
+    .from("interests")
+    .select("shoe_id")
+    .eq("user_id", userId);
+  return new Set((data ?? []).map((r: { shoe_id: string }) => r.shoe_id));
+}
+
 export default async function HomePage() {
-  const shoes = await getShoes();
+  const [shoes, session] = await Promise.all([getShoes(), getSessionInfo()]);
+  const interested = session
+    ? await getMyInterestShoeIds(session.userId)
+    : new Set<string>();
+  const role = session?.profile?.role ?? null;
+  const canRequest = role === "customer" || role === "admin" || role === "submitter";
+
   const active = shoes.filter((s) => s.status !== "sold");
   const sold = shoes.filter((s) => s.status === "sold");
 
@@ -24,8 +40,10 @@ export default async function HomePage() {
       <section className="mb-10">
         <h1 className="text-3xl font-semibold tracking-tight">Coming soon</h1>
         <p className="text-neutral-600 mt-2 max-w-2xl">
-          A preview of sneakers we&apos;re lining up for the Addis Ababa shop. No
-          orders yet — just a peek at what&apos;s on the way.
+          A preview of sneakers we&apos;re lining up for the Addis Ababa shop.
+          {session
+            ? " Tap a shoe you want — we'll reach out when it's in stock."
+            : " Sign in to let us know which ones you want."}
         </p>
       </section>
 
@@ -36,7 +54,13 @@ export default async function HomePage() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {active.map((s) => (
-            <ShoeCard key={s.id} shoe={s} />
+            <ShoeCard
+              key={s.id}
+              shoe={s}
+              signedIn={!!session}
+              canRequest={canRequest}
+              alreadyRequested={interested.has(s.id)}
+            />
           ))}
         </div>
       )}
@@ -48,7 +72,7 @@ export default async function HomePage() {
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {sold.map((s) => (
-              <ShoeCard key={s.id} shoe={s} dim />
+              <ShoeCard key={s.id} shoe={s} signedIn={!!session} dim />
             ))}
           </div>
         </section>

@@ -1,24 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer, ShoeStatus } from "@/lib/supabase";
+import { supabaseService, ShoeStatus } from "@/lib/supabase";
+import { requireRole } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const STATUSES: ShoeStatus[] = ["upcoming", "available", "sold"];
 
-function authed(req: NextRequest): boolean {
-  const header = req.headers.get("x-admin-password") ?? "";
-  const expected = process.env.ADMIN_PASSWORD ?? "";
-  return expected.length > 0 && header === expected;
-}
-
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!authed(req)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const { error: gateError } = await requireRole(["admin"]);
+  if (gateError) return gateError;
+
   const body = await req.json().catch(() => ({}));
   const patch: Record<string, unknown> = {};
   if (body.status && STATUSES.includes(body.status)) patch.status = body.status;
@@ -30,7 +25,7 @@ export async function PATCH(
     return NextResponse.json({ error: "nothing to update" }, { status: 400 });
   }
 
-  const db = supabaseServer();
+  const db = supabaseService();
   const { data, error } = await db
     .from("shoes")
     .update(patch)
@@ -42,13 +37,13 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!authed(req)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-  const db = supabaseServer();
+  const { error: gateError } = await requireRole(["admin"]);
+  if (gateError) return gateError;
+
+  const db = supabaseService();
   const { error } = await db.from("shoes").delete().eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
