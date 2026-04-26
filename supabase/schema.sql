@@ -86,7 +86,12 @@ declare
   final_role text := 'customer';
 begin
   if admin_emails is not null
-     and position(lower(new.email) in lower(admin_emails)) > 0 then
+     and lower(new.email) = any (
+       array(
+         select btrim(lower(part))
+         from unnest(string_to_array(admin_emails, ',')) as part
+       )
+     ) then
     final_role := 'admin';
   elsif invited_role in ('admin', 'submitter', 'customer') then
     final_role := invited_role;
@@ -136,6 +141,13 @@ create policy "interests admin read all"
 drop policy if exists "interests self insert" on public.interests;
 create policy "interests self insert"
   on public.interests for insert
+  with check (auth.uid() = user_id);
+
+-- Required for upsert with onConflict (shoe_id, user_id) to update existing rows.
+drop policy if exists "interests self update" on public.interests;
+create policy "interests self update"
+  on public.interests for update
+  using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
 drop policy if exists "interests self delete" on public.interests;
