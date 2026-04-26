@@ -1,5 +1,7 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+
+type CookieToSet = { name: string; value: string; options: CookieOptions };
 
 // Server client with the user's session (cookie-aware). Use in Server Components,
 // Route Handlers, and middleware wrappers. Do NOT use for privileged writes —
@@ -16,7 +18,7 @@ export function supabaseServer() {
     {
       cookies: {
         getAll: () => store.getAll(),
-        setAll: (items) => {
+        setAll: (items: CookieToSet[]) => {
           try {
             items.forEach(({ name, value, options }) =>
               store.set(name, value, options)
