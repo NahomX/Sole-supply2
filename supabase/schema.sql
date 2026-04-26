@@ -73,6 +73,13 @@ create policy "profiles admin read all"
 -- ADMIN_EMAILS is stored as a comma-separated string in a postgres setting
 -- so the trigger doesn't need to read env vars. We set it via SQL in the
 -- Supabase dashboard: `alter database postgres set app.admin_emails = '...';`
+--
+-- Role source: we read from raw_app_meta_data, NOT raw_user_meta_data.
+-- user_metadata is writable by the user (e.g. via signInWithOtp options.data),
+-- so trusting it would let anyone self-promote to admin. app_metadata is only
+-- writable by the service role, which is what we want for an authority claim.
+-- The /api/invites endpoint also explicitly upserts the profile role after
+-- invite, so the invite path doesn't depend on this either way.
 -- ---------------------------------------------------------------------------
 create or replace function public.handle_new_user()
 returns trigger
@@ -82,7 +89,7 @@ set search_path = public
 as $$
 declare
   admin_emails text := current_setting('app.admin_emails', true);
-  invited_role text := new.raw_user_meta_data->>'role';
+  invited_role text := new.raw_app_meta_data->>'role';
   final_role text := 'customer';
 begin
   if admin_emails is not null
