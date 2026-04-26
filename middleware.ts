@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
+
+type CookieToSet = { name: string; value: string; options: CookieOptions };
 
 // Refreshes the auth cookie on navigations. We don't gate routes here —
 // the actual role check happens in Server Components / Route Handlers via
@@ -13,7 +15,7 @@ export async function middleware(req: NextRequest) {
     {
       cookies: {
         getAll: () => req.cookies.getAll(),
-        setAll: (items) => {
+        setAll: (items: CookieToSet[]) => {
           items.forEach(({ name, value, options }) => {
             res.cookies.set({ name, value, ...options });
           });
