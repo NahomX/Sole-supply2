@@ -1,175 +1,65 @@
-"use client";
+import { redirect } from "next/navigation";
+import { getSessionInfo } from "@/lib/auth";
+import { supabaseService, type Shoe, type Profile } from "@/lib/supabase";
+import { AdminDashboard } from "./AdminDashboard";
 
-import { useEffect, useState } from "react";
-import type { Shoe, ShoeStatus } from "@/lib/supabase";
+export const dynamic = "force-dynamic";
 
-const STATUSES: ShoeStatus[] = ["upcoming", "available", "sold"];
+type InterestRow = {
+  id: string;
+  shoe_id: string;
+  size: string | null;
+  notes: string | null;
+  created_at: string;
+  user_id: string;
+};
 
-export default function AdminPage() {
-  const [password, setPassword] = useState("");
-  const [unlocked, setUnlocked] = useState(false);
-  const [shoes, setShoes] = useState<Shoe[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  async function load() {
-    const res = await fetch("/api/shoes", { cache: "no-store" });
-    if (res.ok) {
-      const j = await res.json();
-      setShoes(j.shoes ?? []);
-    }
-  }
-
-  useEffect(() => {
-    if (unlocked) load();
-  }, [unlocked]);
-
-  async function update(id: string, patch: Partial<Shoe>) {
-    setLoading(true);
-    try {
-      await fetch(`/api/shoes/${id}`, {
-        method: "PATCH",
-        headers: {
-          "content-type": "application/json",
-          "x-admin-password": password,
-        },
-        body: JSON.stringify(patch),
-      });
-      await load();
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function remove(id: string) {
-    if (!confirm("Delete this shoe?")) return;
-    setLoading(true);
-    try {
-      await fetch(`/api/shoes/${id}`, {
-        method: "DELETE",
-        headers: { "x-admin-password": password },
-      });
-      await load();
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (!unlocked) {
+export default async function AdminPage() {
+  const session = await getSessionInfo();
+  if (!session) redirect("/auth/sign-in?next=/admin");
+  if (session.profile?.role !== "admin") {
     return (
-      <div className="max-w-sm mx-auto px-4 py-16">
-        <h1 className="text-xl font-semibold mb-4">Admin</h1>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Admin password"
-          className="w-full border border-neutral-300 rounded px-3 py-2 text-sm mb-3"
-        />
-        <button
-          type="button"
-          onClick={() => setUnlocked(password.length > 0)}
-          className="w-full px-4 py-2 rounded bg-black text-white text-sm"
-        >
-          Unlock
-        </button>
-        <p className="text-xs text-neutral-500 mt-3">
-          Password is checked server-side on each write.
+      <div className="max-w-md mx-auto px-4 py-16 text-center">
+        <h1 className="text-xl font-semibold mb-2">Not authorized</h1>
+        <p className="text-sm text-neutral-600">
+          This area is for admins only.
         </p>
       </div>
     );
   }
 
-  return (
-    <div className="max-w-5xl mx-auto px-4 py-10">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Admin</h1>
-        <a href="/submit" className="text-sm underline">
-          + Add a shoe
-        </a>
-      </div>
+  const db = supabaseService();
+  const [shoesQ, profilesQ, interestsQ] = await Promise.all([
+    db.from("shoes").select("*").order("created_at", { ascending: false }),
+    db.from("profiles").select("*").order("created_at", { ascending: false }),
+    db.from("interests").select("*").order("created_at", { ascending: false }),
+  ]);
 
-      <div className="overflow-x-auto border border-neutral-200 rounded">
-        <table className="w-full text-sm">
-          <thead className="bg-neutral-50 text-left text-neutral-600">
-            <tr>
-              <th className="p-2">Image</th>
-              <th className="p-2">Title</th>
-              <th className="p-2">Brand</th>
-              <th className="p-2">Sizes</th>
-              <th className="p-2">Status</th>
-              <th className="p-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {shoes.map((s) => (
-              <tr key={s.id} className="border-t border-neutral-200 align-top">
-                <td className="p-2">
-                  {s.image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={s.image_url}
-                      alt=""
-                      className="w-14 h-14 object-cover rounded bg-neutral-100"
-                    />
-                  ) : (
-                    <div className="w-14 h-14 rounded bg-neutral-100" />
-                  )}
-                </td>
-                <td className="p-2 max-w-xs">
-                  <a
-                    href={s.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline"
-                  >
-                    {s.title}
-                  </a>
-                  {s.notes && (
-                    <div className="text-xs text-neutral-500 mt-1">
-                      {s.notes}
-                    </div>
-                  )}
-                </td>
-                <td className="p-2">{s.brand ?? "—"}</td>
-                <td className="p-2">{s.sizes ?? "—"}</td>
-                <td className="p-2">
-                  <select
-                    value={s.status}
-                    onChange={(e) =>
-                      update(s.id, { status: e.target.value as ShoeStatus })
-                    }
-                    disabled={loading}
-                    className="border border-neutral-300 rounded px-2 py-1 text-sm"
-                  >
-                    {STATUSES.map((st) => (
-                      <option key={st} value={st}>
-                        {st}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="p-2">
-                  <button
-                    type="button"
-                    onClick={() => remove(s.id)}
-                    disabled={loading}
-                    className="text-red-600 text-xs hover:underline"
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {shoes.length === 0 && (
-              <tr>
-                <td colSpan={6} className="p-6 text-center text-neutral-500">
-                  No shoes yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+  const shoes = (shoesQ.data as Shoe[]) ?? [];
+  const profiles = (profilesQ.data as Profile[]) ?? [];
+  const interests = (interestsQ.data as InterestRow[]) ?? [];
+
+  const profileById = new Map(profiles.map((p) => [p.id, p]));
+  const interestsByShoe = new Map<
+    string,
+    Array<InterestRow & { email: string | null }>
+  >();
+  for (const row of interests) {
+    const enriched = {
+      ...row,
+      email: profileById.get(row.user_id)?.email ?? null,
+    };
+    const arr = interestsByShoe.get(row.shoe_id) ?? [];
+    arr.push(enriched);
+    interestsByShoe.set(row.shoe_id, arr);
+  }
+
+  return (
+    <AdminDashboard
+      me={session.email ?? ""}
+      shoes={shoes}
+      profiles={profiles}
+      interestsByShoe={Object.fromEntries(interestsByShoe)}
+    />
   );
 }

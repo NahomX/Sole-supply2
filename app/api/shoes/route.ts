@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+import { supabaseService } from "@/lib/supabase";
+import { requireRole } from "@/lib/auth";
 import { brandFromUrl } from "@/lib/brand";
 import { scrapeOpenGraph } from "@/lib/scrape";
 
@@ -7,7 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const db = supabaseServer();
+  const db = supabaseService();
   const { data, error } = await db
     .from("shoes")
     .select("*")
@@ -17,6 +18,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const { error: gateError } = await requireRole(["admin", "submitter"]);
+  if (gateError) return gateError;
+
   const body = await req.json().catch(() => ({}));
   const url = String(body.url ?? "");
   if (!/^https?:\/\//i.test(url)) {
@@ -41,7 +45,7 @@ export async function POST(req: NextRequest) {
     status: "upcoming",
   };
 
-  const db = supabaseServer();
+  const db = supabaseService();
   const { data, error } = await db.from("shoes").insert(row).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ shoe: data });

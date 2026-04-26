@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
+import { AuthNav } from "@/components/AuthNav";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -23,11 +24,7 @@ export default function RootLayout({
             <Link href="/" className="text-xl font-semibold tracking-tight">
               Sole Supply
             </Link>
-            <nav className="text-sm text-neutral-600">
-              <Link href="/" className="hover:text-neutral-900">
-                Coming soon
-              </Link>
-            </nav>
+            <AuthNav />
           </div>
         </header>
         <main className="flex-1">{children}</main>
