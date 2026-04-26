@@ -1,6 +1,5 @@
-import { createBrowserClient, createServerClient } from "@supabase/ssr";
+import { createBrowserClient } from "@supabase/ssr";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { cookies } from "next/headers";
 
 export type Role = "admin" | "submitter" | "customer";
 export type ShoeStatus = "upcoming" | "available" | "sold";
@@ -47,30 +46,10 @@ export function supabaseBrowser(): SupabaseClient {
   return browser;
 }
 
-// Server client with the user's session (cookie-aware). Use in Server Components,
-// Route Handlers, and middleware wrappers. Do NOT use for privileged writes —
-// RLS still applies.
-export function supabaseServer() {
-  const store = cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => store.getAll(),
-        setAll: (items) => {
-          try {
-            items.forEach(({ name, value, options }) =>
-              store.set(name, value, options)
-            );
-          } catch {
-            // Called from a Server Component — cookies are read-only. Safe to ignore.
-          }
-        },
-      },
-    }
-  );
-}
+// supabaseServer (cookie-aware, RLS-applying) lives in lib/supabase-server.ts
+// because it imports next/headers, which can't be bundled into client components.
+// Importing it here would pull next/headers into anything that touches this
+// module — including the sign-in page, which is "use client".
 
 // Service-role client for privileged writes that must bypass RLS
 // (e.g., scraper insert, inviting users). Never expose to the browser.
