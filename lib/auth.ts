@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { supabaseServer, type Profile, type Role } from "./supabase";
+import { supabaseServer } from "./supabase-server";
+import type { Profile, Role } from "./supabase";
 
 export type SessionInfo = {
   userId: string;
