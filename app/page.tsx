@@ -29,8 +29,6 @@ export default async function HomePage() {
   const interested = session
     ? await getMyInterestShoeIds(session.userId)
     : new Set<string>();
-  const role = session?.profile?.role ?? null;
-  const canRequest = role === "customer" || role === "admin" || role === "submitter";
 
   const active = shoes.filter((s) => s.status !== "sold");
   const sold = shoes.filter((s) => s.status === "sold");
@@ -43,7 +41,7 @@ export default async function HomePage() {
           A preview of sneakers we&apos;re lining up for the Addis Ababa shop.
           {session
             ? " Tap a shoe you want — we'll reach out when it's in stock."
-            : " Sign in to let us know which ones you want."}
+            : " Sign in from the header to request the ones you want."}
         </p>
       </section>
 
@@ -58,7 +56,6 @@ export default async function HomePage() {
               key={s.id}
               shoe={s}
               signedIn={!!session}
-              canRequest={canRequest}
               alreadyRequested={interested.has(s.id)}
             />
           ))}

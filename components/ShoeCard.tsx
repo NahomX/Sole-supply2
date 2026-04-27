@@ -4,25 +4,32 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Shoe } from "@/lib/supabase";
 
+type Mode = "idle" | "info" | "request";
+
 export function ShoeCard({
   shoe,
   dim = false,
   signedIn = false,
-  canRequest = false,
   alreadyRequested = false,
 }: {
   shoe: Shoe;
   dim?: boolean;
   signedIn?: boolean;
-  canRequest?: boolean;
   alreadyRequested?: boolean;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<Mode>("idle");
   const [size, setSize] = useState("");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const reviewsUrl = `https://www.google.com/search?q=${encodeURIComponent(
+    `${shoe.title} reviews`
+  )}`;
+
+  const canShowRequest =
+    shoe.status !== "sold" && signedIn && !alreadyRequested;
 
   async function send() {
     setLoading(true);
@@ -41,7 +48,7 @@ export function ShoeCard({
       const j = await res.json().catch(() => ({}));
       setErr(j.error ?? "Failed to send.");
     } else {
-      setOpen(false);
+      setMode("idle");
       router.refresh();
     }
   }
@@ -88,66 +95,97 @@ export function ShoeCard({
           </div>
         </div>
 
-        {shoe.status !== "sold" && (
-          <div className="mt-auto">
-            {!signedIn ? (
+        {mode === "info" && (
+          <ul className="text-xs space-y-1.5 border-t border-neutral-100 pt-2">
+            <li>
               <a
-                href="/auth/sign-in"
-                className="block w-full text-center text-xs border border-neutral-300 rounded px-3 py-2 hover:bg-neutral-50"
+                href={shoe.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-blue-700 hover:underline"
               >
-                Sign in to request
+                Producer site →
               </a>
-            ) : alreadyRequested ? (
-              <div className="text-xs text-center text-neutral-500 border border-neutral-200 rounded px-3 py-2">
-                You requested this
-              </div>
-            ) : canRequest && !open ? (
+            </li>
+            <li className="text-neutral-700">
+              {shoe.price_usd != null
+                ? `$${shoe.price_usd}`
+                : "Price unavailable"}
+            </li>
+            <li>
+              <a
+                href={reviewsUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-blue-700 hover:underline"
+              >
+                Reviews →
+              </a>
+            </li>
+          </ul>
+        )}
+
+        {mode === "request" && (
+          <div className="space-y-2 border-t border-neutral-100 pt-2">
+            <input
+              type="text"
+              value={size}
+              onChange={(e) => setSize(e.target.value)}
+              placeholder="Size (optional)"
+              className="w-full border border-neutral-300 rounded px-2 py-1 text-xs"
+            />
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Notes (optional)"
+              className="w-full border border-neutral-300 rounded px-2 py-1 text-xs"
+            />
+            {err && <div className="text-xs text-red-600">{err}</div>}
+            <div className="flex gap-1">
               <button
                 type="button"
-                onClick={() => setOpen(true)}
-                className="w-full text-xs bg-black text-white rounded px-3 py-2"
+                onClick={send}
+                disabled={loading}
+                className="flex-1 text-xs bg-black text-white rounded px-2 py-1 disabled:opacity-50"
               >
-                I want this
+                {loading ? "Sending..." : "Send request"}
               </button>
-            ) : canRequest && open ? (
-              <div className="space-y-2">
-                <input
-                  type="text"
-                  value={size}
-                  onChange={(e) => setSize(e.target.value)}
-                  placeholder="Size (optional)"
-                  className="w-full border border-neutral-300 rounded px-2 py-1 text-xs"
-                />
-                <input
-                  type="text"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Notes (optional)"
-                  className="w-full border border-neutral-300 rounded px-2 py-1 text-xs"
-                />
-                {err && <div className="text-xs text-red-600">{err}</div>}
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    onClick={send}
-                    disabled={loading}
-                    className="flex-1 text-xs bg-black text-white rounded px-2 py-1 disabled:opacity-50"
-                  >
-                    {loading ? "Sending..." : "Send request"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    disabled={loading}
-                    className="text-xs border border-neutral-300 rounded px-2 py-1"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : null}
+              <button
+                type="button"
+                onClick={() => setMode("idle")}
+                disabled={loading}
+                className="text-xs border border-neutral-300 rounded px-2 py-1"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         )}
+
+        <div className="mt-auto flex gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => setMode(mode === "info" ? "idle" : "info")}
+            className="flex-1 text-xs border border-neutral-300 rounded px-2 py-1.5 hover:bg-neutral-50"
+          >
+            {mode === "info" ? "Hide info" : "Info"}
+          </button>
+          {alreadyRequested && shoe.status !== "sold" && (
+            <div className="flex-1 text-xs text-center text-neutral-500 border border-neutral-200 rounded px-2 py-1.5">
+              Requested
+            </div>
+          )}
+          {canShowRequest && mode !== "request" && (
+            <button
+              type="button"
+              onClick={() => setMode("request")}
+              className="flex-1 text-xs bg-black text-white rounded px-2 py-1.5"
+            >
+              I want this
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
