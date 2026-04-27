@@ -1,5 +1,10 @@
--- Sole Supply schema. Run in the Supabase SQL editor.
--- Idempotent: safe to re-run after the dev-branch auth migration.
+-- 0001_init — initial schema baseline.
+--
+-- Adds: shoes, profiles (with role), interests, is_admin() helper,
+-- and the on_auth_user_created trigger that creates a profile + auto-promotes
+-- admin emails on signup.
+--
+-- Idempotent: safe to re-run on an existing database.
 
 create extension if not exists "pgcrypto";
 

@@ -28,7 +28,7 @@ A small web app for a sneaker-importing workflow from the US to Addis Ababa, Eth
 ### 1. Supabase project
 
 - Create a project at [supabase.com](https://supabase.com).
-- SQL Editor → paste [`supabase/schema.sql`](supabase/schema.sql) → Run.
+- SQL Editor → paste each file in [`supabase/migrations/`](supabase/migrations/) in numeric order → Run. See [`supabase/migrations/README.md`](supabase/migrations/README.md) for the workflow as more migrations land.
 - Whitelist the admin email(s) so the signup trigger auto-promotes them:
   ```sql
   alter database postgres set app.admin_emails = 'your-email@example.com';
