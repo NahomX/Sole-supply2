@@ -10,11 +10,13 @@ export function ShoeCard({
   shoe,
   dim = false,
   signedIn = false,
+  isAdmin = false,
   alreadyRequested = false,
 }: {
   shoe: Shoe;
   dim?: boolean;
   signedIn?: boolean;
+  isAdmin?: boolean;
   alreadyRequested?: boolean;
 }) {
   const router = useRouter();
@@ -97,16 +99,20 @@ export function ShoeCard({
 
         {mode === "info" && (
           <ul className="text-xs space-y-1.5 border-t border-neutral-100 pt-2">
-            <li>
-              <a
-                href={shoe.url}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="text-blue-700 hover:underline"
-              >
-                Producer site →
-              </a>
-            </li>
+            {/* Producer site is admin-only — it's the procurement source and
+                the whole funnel exists to gate access to it. */}
+            {isAdmin && (
+              <li>
+                <a
+                  href={shoe.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-blue-700 hover:underline"
+                >
+                  Producer site →
+                </a>
+              </li>
+            )}
             <li className="text-neutral-700">
               {shoe.price_usd != null
                 ? `$${shoe.price_usd}`

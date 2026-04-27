@@ -7,15 +7,10 @@ import { scrapeOpenGraph } from "@/lib/scrape";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const db = supabaseService();
-  const { data, error } = await db
-    .from("shoes")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ shoes: data ?? [] });
-}
+// No GET handler. Listing shoes is done server-side in app/page.tsx (with
+// shoe.url redacted for non-admins) and in app/admin/page.tsx (admin only).
+// A public JSON endpoint would re-leak the procurement URL — only add one
+// back if you can guarantee the field whitelist.
 
 export async function POST(req: NextRequest) {
   const { error: gateError } = await requireRole(["admin", "submitter"]);

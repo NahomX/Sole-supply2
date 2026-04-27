@@ -24,11 +24,21 @@ async function getMyInterestShoeIds(userId: string): Promise<Set<string>> {
   return new Set((data ?? []).map((r: { shoe_id: string }) => r.shoe_id));
 }
 
+// shoe.url is the procurement source — admins only. Strip it from the
+// payload sent to non-admin clients so it never lands in the HTML/RSC
+// stream where dev-tools or view-source would expose it. The UI hides
+// the link too, but server-side redaction is the actual security boundary.
+function redactForViewer(s: Shoe, isAdmin: boolean): Shoe {
+  return isAdmin ? s : { ...s, url: "" };
+}
+
 export default async function HomePage() {
-  const [shoes, session] = await Promise.all([getShoes(), getSessionInfo()]);
+  const [shoesRaw, session] = await Promise.all([getShoes(), getSessionInfo()]);
   const interested = session
     ? await getMyInterestShoeIds(session.userId)
     : new Set<string>();
+  const isAdmin = session?.profile?.role === "admin";
+  const shoes = shoesRaw.map((s) => redactForViewer(s, isAdmin));
 
   const active = shoes.filter((s) => s.status !== "sold");
   const sold = shoes.filter((s) => s.status === "sold");
@@ -56,6 +66,7 @@ export default async function HomePage() {
               key={s.id}
               shoe={s}
               signedIn={!!session}
+              isAdmin={isAdmin}
               alreadyRequested={interested.has(s.id)}
             />
           ))}
@@ -69,7 +80,13 @@ export default async function HomePage() {
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {sold.map((s) => (
-              <ShoeCard key={s.id} shoe={s} signedIn={!!session} dim />
+              <ShoeCard
+                key={s.id}
+                shoe={s}
+                signedIn={!!session}
+                isAdmin={isAdmin}
+                dim
+              />
             ))}
           </div>
         </section>
