@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Shoe, ShoeStatus, Profile, Role } from "@/lib/supabase";
+import type {
+  Shoe,
+  ShoeStatus,
+  Profile,
+  Role,
+  LogisticsStatus,
+} from "@/lib/supabase";
 
 type InterestWithEmail = {
   id: string;
@@ -15,22 +21,31 @@ type InterestWithEmail = {
 };
 
 const STATUSES: ShoeStatus[] = ["upcoming", "available", "sold"];
-const ROLES: Role[] = ["customer", "submitter", "admin"];
+const ROLES: Role[] = ["customer", "submitter", "shipper", "admin"];
+const LOGISTICS: LogisticsStatus[] = [
+  "purchased",
+  "dispatched",
+  "arrived",
+  "delivered",
+];
 
 type Tab = "shoes" | "users" | "interests";
 
 export function AdminDashboard({
   me,
+  role,
   shoes,
   profiles,
   interestsByShoe,
 }: {
   me: string;
+  role: Role;
   shoes: Shoe[];
   profiles: Profile[];
   interestsByShoe: Record<string, InterestWithEmail[]>;
 }) {
   const router = useRouter();
+  const isAdmin = role === "admin";
   const [tab, setTab] = useState<Tab>("shoes");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -85,35 +100,43 @@ export function AdminDashboard({
     setInviteEmail("");
   }
 
+  // Tabs available depend on role. Shippers see only the shoes list (so
+  // they can flip logistics statuses); admins see everything.
+  const tabs: Array<[Tab, string]> = isAdmin
+    ? [
+        ["shoes", "Shoes"],
+        ["users", "Users"],
+        ["interests", "Interests"],
+      ]
+    : [["shoes", "Shoes"]];
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-10">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Admin</h1>
+        <h1 className="text-2xl font-semibold">
+          {isAdmin ? "Admin" : "Logistics"}
+        </h1>
         <div className="text-xs text-neutral-500">{me}</div>
       </div>
 
-      <div className="flex gap-1 border-b border-neutral-200 mb-6 text-sm">
-        {(
-          [
-            ["shoes", "Shoes"],
-            ["users", "Users"],
-            ["interests", "Interests"],
-          ] as Array<[Tab, string]>
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={`px-3 py-2 border-b-2 ${
-              tab === key
-                ? "border-black font-medium"
-                : "border-transparent text-neutral-500 hover:text-neutral-800"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {tabs.length > 1 && (
+        <div className="flex gap-1 border-b border-neutral-200 mb-6 text-sm">
+          {tabs.map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setTab(key)}
+              className={`px-3 py-2 border-b-2 ${
+                tab === key
+                  ? "border-black font-medium"
+                  : "border-transparent text-neutral-500 hover:text-neutral-800"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {msg && <div className="mb-4 text-sm text-red-600">{msg}</div>}
 
@@ -125,10 +148,11 @@ export function AdminDashboard({
                 <th className="p-2">Image</th>
                 <th className="p-2">Title</th>
                 <th className="p-2">Brand</th>
-                <th className="p-2">Sizes</th>
-                <th className="p-2">Interest</th>
-                <th className="p-2">Status</th>
-                <th className="p-2"></th>
+                {isAdmin && <th className="p-2">Sizes</th>}
+                {isAdmin && <th className="p-2">Interest</th>}
+                {isAdmin && <th className="p-2">Status</th>}
+                <th className="p-2">Logistics</th>
+                {isAdmin && <th className="p-2"></th>}
               </tr>
             </thead>
             <tbody>
@@ -147,14 +171,18 @@ export function AdminDashboard({
                     )}
                   </td>
                   <td className="p-2 max-w-xs">
-                    <a
-                      href={s.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline"
-                    >
-                      {s.title}
-                    </a>
+                    {isAdmin ? (
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline"
+                      >
+                        {s.title}
+                      </a>
+                    ) : (
+                      <span>{s.title}</span>
+                    )}
                     {s.notes && (
                       <div className="text-xs text-neutral-500 mt-1">
                         {s.notes}
@@ -162,43 +190,72 @@ export function AdminDashboard({
                     )}
                   </td>
                   <td className="p-2">{s.brand ?? "—"}</td>
-                  <td className="p-2">{s.sizes ?? "—"}</td>
-                  <td className="p-2">
-                    {(interestsByShoe[s.id]?.length ?? 0) || "—"}
-                  </td>
+                  {isAdmin && <td className="p-2">{s.sizes ?? "—"}</td>}
+                  {isAdmin && (
+                    <td className="p-2">
+                      {(interestsByShoe[s.id]?.length ?? 0) || "—"}
+                    </td>
+                  )}
+                  {isAdmin && (
+                    <td className="p-2">
+                      <select
+                        value={s.status}
+                        onChange={(e) =>
+                          updateShoe(s.id, {
+                            status: e.target.value as ShoeStatus,
+                          })
+                        }
+                        disabled={loading}
+                        className="border border-neutral-300 rounded px-2 py-1 text-sm"
+                      >
+                        {STATUSES.map((st) => (
+                          <option key={st} value={st}>
+                            {st}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  )}
                   <td className="p-2">
                     <select
-                      value={s.status}
+                      value={s.logistics_status ?? ""}
                       onChange={(e) =>
                         updateShoe(s.id, {
-                          status: e.target.value as ShoeStatus,
+                          logistics_status:
+                            (e.target.value || null) as LogisticsStatus | null,
                         })
                       }
                       disabled={loading}
                       className="border border-neutral-300 rounded px-2 py-1 text-sm"
                     >
-                      {STATUSES.map((st) => (
+                      <option value="">—</option>
+                      {LOGISTICS.map((st) => (
                         <option key={st} value={st}>
                           {st}
                         </option>
                       ))}
                     </select>
                   </td>
-                  <td className="p-2">
-                    <button
-                      type="button"
-                      onClick={() => deleteShoe(s.id)}
-                      disabled={loading}
-                      className="text-red-600 text-xs hover:underline"
-                    >
-                      Delete
-                    </button>
-                  </td>
+                  {isAdmin && (
+                    <td className="p-2">
+                      <button
+                        type="button"
+                        onClick={() => deleteShoe(s.id)}
+                        disabled={loading}
+                        className="text-red-600 text-xs hover:underline"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
               {shoes.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="p-6 text-center text-neutral-500">
+                  <td
+                    colSpan={isAdmin ? 8 : 4}
+                    className="p-6 text-center text-neutral-500"
+                  >
                     No shoes yet.
                   </td>
                 </tr>
@@ -208,7 +265,7 @@ export function AdminDashboard({
         </div>
       )}
 
-      {tab === "users" && (
+      {tab === "users" && isAdmin && (
         <div className="space-y-6">
           <div className="border border-neutral-200 rounded p-4">
             <h2 className="text-sm font-medium mb-3">Invite someone</h2>
@@ -293,7 +350,7 @@ export function AdminDashboard({
         </div>
       )}
 
-      {tab === "interests" && (
+      {tab === "interests" && isAdmin && (
         <div className="space-y-6">
           {shoes
             .map((s) => ({

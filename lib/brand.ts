@@ -1,7 +1,7 @@
 const BRAND_MAP: Array<{ host: RegExp; brand: string }> = [
   { host: /(^|\.)nike\.com$/i, brand: "Nike" },
   { host: /(^|\.)adidas\.com$/i, brand: "Adidas" },
-  { host: /(^|\.)footlocker\.com$/i, brand: "Foot Locker" },
+  { host: /(^|\.)footlocker\.(com|ca)$/i, brand: "Foot Locker" },
   { host: /(^|\.)newbalance\.com$/i, brand: "New Balance" },
   { host: /(^|\.)puma\.com$/i, brand: "Puma" },
   { host: /(^|\.)converse\.com$/i, brand: "Converse" },

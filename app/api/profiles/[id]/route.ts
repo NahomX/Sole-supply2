@@ -5,7 +5,7 @@ import { requireRole } from "@/lib/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ROLES: Role[] = ["admin", "submitter", "customer"];
+const ROLES: Role[] = ["admin", "submitter", "customer", "shipper"];
 
 export async function PATCH(
   req: NextRequest,

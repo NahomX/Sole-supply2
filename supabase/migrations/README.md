@@ -10,6 +10,7 @@ discipline that lets us safely re-run any subset.
 `NNNN_short_description.sql`, four-digit zero-padded number.
 
 - `0001_init.sql` — initial baseline (shoes, profiles, interests, RLS, signup trigger)
+- `0002_logistics.sql` — adds `shipper` role and `shoes.logistics_status` column
 
 Pick the next available number. Don't renumber existing files.
 

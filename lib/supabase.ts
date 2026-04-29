@@ -1,8 +1,13 @@
 import { createBrowserClient } from "@supabase/ssr";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-export type Role = "admin" | "submitter" | "customer";
+export type Role = "admin" | "submitter" | "customer" | "shipper";
 export type ShoeStatus = "upcoming" | "available" | "sold";
+export type LogisticsStatus =
+  | "purchased"
+  | "dispatched"
+  | "arrived"
+  | "delivered";
 
 export type Shoe = {
   id: string;
@@ -14,6 +19,7 @@ export type Shoe = {
   sizes: string | null;
   notes: string | null;
   status: ShoeStatus;
+  logistics_status: LogisticsStatus | null;
   created_at: string;
 };
 
