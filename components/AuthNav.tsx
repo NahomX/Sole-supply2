@@ -24,9 +24,9 @@ export async function AuthNav() {
           Submit
         </Link>
       )}
-      {role === "admin" && (
+      {(role === "admin" || role === "shipper") && (
         <Link href="/admin" className="hover:text-neutral-900">
-          Admin
+          {role === "admin" ? "Admin" : "Logistics"}
         </Link>
       )}
       <span className="text-neutral-400">·</span>

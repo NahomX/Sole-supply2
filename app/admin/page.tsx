@@ -17,7 +17,8 @@ type InterestRow = {
 export default async function AdminPage() {
   const session = await getSessionInfo();
   if (!session) redirect("/auth/sign-in?next=/admin");
-  if (session.profile?.role !== "admin") {
+  const role = session.profile?.role ?? "customer";
+  if (role !== "admin" && role !== "shipper") {
     return (
       <div className="max-w-md mx-auto px-4 py-16 text-center">
         <h1 className="text-xl font-semibold mb-2">Not authorized</h1>
@@ -29,15 +30,25 @@ export default async function AdminPage() {
   }
 
   const db = supabaseService();
-  const [shoesQ, profilesQ, interestsQ] = await Promise.all([
-    db.from("shoes").select("*").order("created_at", { ascending: false }),
-    db.from("profiles").select("*").order("created_at", { ascending: false }),
-    db.from("interests").select("*").order("created_at", { ascending: false }),
-  ]);
-
+  // Shippers only need the shoes list (to update logistics_status). Skip the
+  // profiles + interests queries for them — those are admin-only views.
+  const isAdmin = role === "admin";
+  const shoesQ = await db
+    .from("shoes")
+    .select("*")
+    .order("created_at", { ascending: false });
   const shoes = (shoesQ.data as Shoe[]) ?? [];
-  const profiles = (profilesQ.data as Profile[]) ?? [];
-  const interests = (interestsQ.data as InterestRow[]) ?? [];
+
+  let profiles: Profile[] = [];
+  let interests: InterestRow[] = [];
+  if (isAdmin) {
+    const [profilesQ, interestsQ] = await Promise.all([
+      db.from("profiles").select("*").order("created_at", { ascending: false }),
+      db.from("interests").select("*").order("created_at", { ascending: false }),
+    ]);
+    profiles = (profilesQ.data as Profile[]) ?? [];
+    interests = (interestsQ.data as InterestRow[]) ?? [];
+  }
 
   const profileById = new Map(profiles.map((p) => [p.id, p]));
   const interestsByShoe = new Map<
@@ -57,6 +68,7 @@ export default async function AdminPage() {
   return (
     <AdminDashboard
       me={session.email ?? ""}
+      role={role}
       shoes={shoes}
       profiles={profiles}
       interestsByShoe={Object.fromEntries(interestsByShoe)}
