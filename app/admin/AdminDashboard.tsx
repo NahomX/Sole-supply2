@@ -37,18 +37,28 @@ export function AdminDashboard({
   shoes,
   profiles,
   interestsByShoe,
+  staleShoeIds = [],
+  staleAgeDaysById = {},
 }: {
   me: string;
   role: Role;
   shoes: Shoe[];
   profiles: Profile[];
   interestsByShoe: Record<string, InterestWithEmail[]>;
+  /** IDs of shoes that meet the stale criteria (upcoming + null logistics + >7d) */
+  staleShoeIds?: string[];
+  /** Days-old for each stale shoe ID */
+  staleAgeDaysById?: Record<string, number>;
 }) {
   const router = useRouter();
   const isAdmin = role === "admin";
   const [tab, setTab] = useState<Tab>("shoes");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [staleFilterActive, setStaleFilterActive] = useState(false);
+
+  const staleSet = new Set(staleShoeIds);
+  const staleCount = staleShoeIds.length;
 
   async function call(path: string, init: RequestInit) {
     setLoading(true);
@@ -110,6 +120,12 @@ export function AdminDashboard({
       ]
     : [["shoes", "Shoes"]];
 
+  // When the stale filter is active, only show stale rows in the shoes table.
+  const visibleShoes =
+    staleFilterActive && tab === "shoes"
+      ? shoes.filter((s) => staleSet.has(s.id))
+      : shoes;
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-10">
       <div className="flex items-center justify-between mb-6">
@@ -140,6 +156,28 @@ export function AdminDashboard({
 
       {msg && <div className="mb-4 text-sm text-red-600">{msg}</div>}
 
+      {/* Stale attention banner — shown in the Shoes tab when there are stale items */}
+      {tab === "shoes" && staleCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setStaleFilterActive((v) => !v)}
+          className={`w-full mb-4 flex items-center gap-2 px-4 py-2.5 rounded border text-sm font-medium transition-colors ${
+            staleFilterActive
+              ? "bg-amber-100 border-amber-400 text-amber-900"
+              : "bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100"
+          }`}
+        >
+          <span>&#9888;</span>
+          <span>
+            {staleCount} shoe{staleCount === 1 ? "" : "s"} need attention
+            (upcoming, no logistics activity, &gt;7 days old)
+          </span>
+          <span className="ml-auto text-xs font-normal">
+            {staleFilterActive ? "Show all" : "Filter to these"}
+          </span>
+        </button>
+      )}
+
       {tab === "shoes" && (
         <div className="overflow-x-auto border border-neutral-200 rounded">
           <table className="w-full text-sm">
@@ -156,7 +194,7 @@ export function AdminDashboard({
               </tr>
             </thead>
             <tbody>
-              {shoes.map((s) => (
+              {visibleShoes.map((s) => (
                 <tr key={s.id} className="border-t border-neutral-200 align-top">
                   <td className="p-2">
                     {s.image_url ? (
@@ -214,6 +252,12 @@ export function AdminDashboard({
                           </option>
                         ))}
                       </select>
+                      {/* Stale badge — amber inline indicator */}
+                      {staleSet.has(s.id) && (
+                        <div className="mt-1 text-[10px] text-amber-700 font-medium">
+                          Stale &middot; {staleAgeDaysById[s.id]}d
+                        </div>
+                      )}
                     </td>
                   )}
                   <td className="p-2">
@@ -250,13 +294,15 @@ export function AdminDashboard({
                   )}
                 </tr>
               ))}
-              {shoes.length === 0 && (
+              {visibleShoes.length === 0 && (
                 <tr>
                   <td
                     colSpan={isAdmin ? 8 : 4}
                     className="p-6 text-center text-neutral-500"
                   >
-                    No shoes yet.
+                    {staleFilterActive
+                      ? "No stale shoes — everything is moving."
+                      : "No shoes yet."}
                   </td>
                 </tr>
               )}
