@@ -4,8 +4,8 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 export type Role = "admin" | "submitter" | "customer" | "shipper";
 export type ShoeStatus = "upcoming" | "available" | "sold";
 export type LogisticsStatus =
+  | "in_cart"
   | "purchased"
-  | "dispatched"
   | "arrived"
   | "delivered";
 

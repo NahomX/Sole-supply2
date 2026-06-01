@@ -23,8 +23,8 @@ type InterestWithEmail = {
 const STATUSES: ShoeStatus[] = ["upcoming", "available", "sold"];
 const ROLES: Role[] = ["customer", "submitter", "shipper", "admin"];
 const LOGISTICS: LogisticsStatus[] = [
+  "in_cart",
   "purchased",
-  "dispatched",
   "arrived",
   "delivered",
 ];

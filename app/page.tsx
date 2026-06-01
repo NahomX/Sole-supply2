@@ -1,6 +1,7 @@
 import { supabaseService, type Shoe } from "@/lib/supabase";
 import { getSessionInfo } from "@/lib/auth";
 import { ShoeCard } from "@/components/ShoeCard";
+import { customerLabel } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -40,57 +41,71 @@ export default async function HomePage() {
   const isAdmin = session?.profile?.role === "admin";
   const shoes = shoesRaw.map((s) => redactForViewer(s, isAdmin));
 
-  const active = shoes.filter((s) => s.status !== "sold");
-  const sold = shoes.filter((s) => s.status === "sold");
+  // Split into sections per the customer label mapping.
+  const inStock = shoes.filter((s) => customerLabel(s).section === "in-stock");
+  const onTheWay = shoes.filter(
+    (s) => customerLabel(s).section === "on-the-way"
+  );
+  const comingSoon = shoes.filter(
+    (s) => customerLabel(s).section === "coming-soon"
+  );
+  const previously = shoes.filter(
+    (s) => customerLabel(s).section === "previously"
+  );
 
-  return (
-    <div className="max-w-6xl mx-auto px-4 py-10">
-      <section className="mb-10">
-        <h1 className="text-3xl font-semibold tracking-tight">Coming soon</h1>
-        <p className="text-neutral-600 mt-2 max-w-2xl">
-          A preview of sneakers we&apos;re lining up for the Addis Ababa shop.
-          {session
-            ? " Tap a shoe you want — we'll reach out when it's in stock."
-            : " Sign in from the header to request the ones you want."}
-        </p>
-      </section>
+  const hasAny = shoes.length > 0;
 
-      {active.length === 0 ? (
-        <div className="text-neutral-500 text-sm">
-          Nothing to show yet — check back soon.
-        </div>
-      ) : (
+  function Section({
+    title,
+    items,
+    dim = false,
+  }: {
+    title: string;
+    items: Shoe[];
+    dim?: boolean;
+  }) {
+    if (items.length === 0) return null;
+    return (
+      <section className="mb-14">
+        <h2 className="text-lg font-medium text-neutral-700 mb-4">{title}</h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {active.map((s) => (
+          {items.map((s) => (
             <ShoeCard
               key={s.id}
               shoe={s}
               signedIn={!!session}
               isAdmin={isAdmin}
               alreadyRequested={interested.has(s.id)}
+              dim={dim}
             />
           ))}
         </div>
+      </section>
+    );
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-10">
+      <section className="mb-10">
+        <h1 className="text-3xl font-semibold tracking-tight">Sole Supply</h1>
+        <p className="text-neutral-600 mt-2 max-w-2xl">
+          Sneakers from the US, delivered to Addis Ababa.
+          {session
+            ? " Tap a shoe you want — we'll reach out when it's in stock."
+            : " Sign in from the header to request the ones you want."}
+        </p>
+      </section>
+
+      {!hasAny && (
+        <div className="text-neutral-500 text-sm">
+          Nothing to show yet — check back soon.
+        </div>
       )}
 
-      {sold.length > 0 && (
-        <section className="mt-16">
-          <h2 className="text-lg font-medium text-neutral-500 mb-4">
-            Previously
-          </h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {sold.map((s) => (
-              <ShoeCard
-                key={s.id}
-                shoe={s}
-                signedIn={!!session}
-                isAdmin={isAdmin}
-                dim
-              />
-            ))}
-          </div>
-        </section>
-      )}
+      <Section title="In stock" items={inStock} />
+      <Section title="On the way" items={onTheWay} />
+      <Section title="Coming soon" items={comingSoon} />
+      <Section title="Previously" items={previously} dim />
     </div>
   );
 }
