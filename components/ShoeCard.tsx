@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Shoe } from "@/lib/supabase";
+import { customerLabel } from "@/lib/labels";
 
 type Mode = "idle" | "info" | "request";
 
@@ -30,6 +31,7 @@ export function ShoeCard({
     `${shoe.title} reviews`
   )}`;
 
+  const label = customerLabel(shoe);
   const canShowRequest =
     shoe.status !== "sold" && signedIn && !alreadyRequested;
 
@@ -74,16 +76,11 @@ export function ShoeCard({
             No image
           </div>
         )}
-        {shoe.status === "upcoming" && (
-          <span className="absolute top-2 left-2 text-[10px] uppercase tracking-wider bg-black text-white px-2 py-1 rounded">
-            Upcoming
-          </span>
-        )}
-        {shoe.status === "sold" && (
-          <span className="absolute top-2 left-2 text-[10px] uppercase tracking-wider bg-neutral-700 text-white px-2 py-1 rounded">
-            Sold
-          </span>
-        )}
+        <span
+          className={`absolute top-2 left-2 text-[10px] uppercase tracking-wider px-2 py-1 rounded ${label.className}`}
+        >
+          {label.text}
+        </span>
       </div>
       <div className="p-3 flex-1 flex flex-col gap-2">
         <div>

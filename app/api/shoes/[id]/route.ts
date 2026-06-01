@@ -11,8 +11,8 @@ export const dynamic = "force-dynamic";
 
 const STATUSES: ShoeStatus[] = ["upcoming", "available", "sold"];
 const LOGISTICS: LogisticsStatus[] = [
+  "in_cart",
   "purchased",
-  "dispatched",
   "arrived",
   "delivered",
 ];
