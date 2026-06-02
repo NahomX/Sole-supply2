@@ -1,8 +1,8 @@
 # Sole Supply — STATUS
 
-**Version:** 4
-**Last updated:** 2026-06-02 (pm-sole-supply — doc-reconcile: PR #8 merged, migration confirmed live, PR #9 blocker updated)
-**State:** ONE PR OPEN (#9 feat/stale-checker). M2 + M3 are fully live (PR #8 merged to main at bd47541; 0003 migration confirmed run in Supabase). PR #9 is blocked solely on Telegram env vars (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) not yet set in Vercel — and user confirming Vercel plan supports Cron — before merging.
+**Version:** 5
+**Last updated:** 2026-06-02 (pm-sole-supply — Telegram bots PR A pushed: infra + customer bot on feat/telegram-bots)
+**State:** TWO PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars) + PR A (feat/telegram-bots, open, awaiting review). PR B (work bots + ops bot) is next after PR A merges.
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
 
@@ -10,7 +10,7 @@
 
 ## Product in one paragraph
 
-A Next.js 14 + Supabase web app for a **sneaker-importing workflow, US → Addis Ababa**. It is a procurement queue + storefront preview + interest tracker + logistics pipeline (no automated checkout — a human buys each shoe). Roles: **customer** (browse `/`, tap "I want this"), **submitter** (paste retailer URLs at `/submit`, OG-scraped), **shipper** (flip logistics status in `/admin`), **admin** (everything). Deployed on Vercel; auth via Supabase magic links; RLS on.
+A Next.js 14 + Supabase web app for a **sneaker-importing workflow, US → Addis Ababa**. It is a procurement queue + storefront preview + interest tracker + logistics pipeline (no automated checkout — a human buys each shoe). Roles: **customer** (browse `/`, tap "I want this"), **submitter** (paste retailer URLs at `/submit`, OG-scraped), **shipper** (flip logistics status in `/admin`), **admin** (everything). Deployed on Vercel; auth via Supabase magic links; RLS on. **Interactive Telegram bots** (grammY, webhook-based) are being added in two PRs.
 
 ## The data model — two status tracks (locked)
 
@@ -19,11 +19,38 @@ Each `shoes` row carries two independent tracks:
 - **Logistics status** `shoes.logistics_status` (nullable; admin/shipper): `in_cart → purchased → arrived → delivered`
   - (was `purchased → dispatched → arrived → delivered` before M2; dispatched removed, in_cart added — LIVE as of 2026-06-01)
 
-Each enum is mirrored in **four places that must stay in sync**: the DB check constraint (`supabase/migrations/`), the TS type (`lib/supabase.ts`), the API validation array (`app/api/shoes/[id]/route.ts`), and the admin dropdown array (`app/admin/AdminDashboard.tsx`).
+Each enum is mirrored in **four places that must stay in sync**: the DB check constraint (`supabase/migrations/`), the TS type (`lib/supabase.ts`), the API validation array (`lib/shoes.ts` — now the canonical source, imported by the API route), and the admin dropdown array (`app/admin/AdminDashboard.tsx`).
 
 ---
 
 ## OPEN PRs
+
+### PR A — `feat/telegram-bots` — Telegram bots infra + customer bot
+**URL:** (see below — opened this session)
+**Branch:** `feat/telegram-bots` (branched from `origin/main` at `bd47541`)
+
+**What's in it:**
+- `lib/shoes.ts` (new): extracted `createShoeFromUrl`, `setLogisticsStatus`, `setSalesStatus`, `getPublicShoes`, `getAllShoes`, `getShoesByLogistics`; canonical `STATUSES`/`LOGISTICS` arrays (single source of truth, replaces inline arrays in the API route)
+- `app/api/shoes/route.ts`: delegates to `lib/shoes.createShoeFromUrl` (no logic change)
+- `app/api/shoes/[id]/route.ts`: imports `STATUSES`/`LOGISTICS` from `lib/shoes` (no logic change)
+- `lib/telegram.ts` (new): `sendTelegramMessage` helper + `verifyWebhookSecret`
+- `lib/bots/registry.ts` (new): `BOT_REGISTRY` — 6 entries (customer, incart, purchaser, arrived, delivery, ops); `getBotEntry` lookup
+- `lib/bots/auth.ts` (new): `checkAllowlist` — queries `telegram_users` table, enforces role + per-bot scoping
+- `lib/bots/handlers.ts` (new): grammY handlers for all 6 bots; customer bot NEVER emits `shoe.url` (producer-URL redaction boundary)
+- `app/api/telegram/[bot]/route.ts` (new): dynamic webhook dispatcher; verifies `X-Telegram-Bot-Api-Secret-Token`
+- `supabase/migrations/0004_telegram_users.sql` (new): allowlist table — NOT yet applied; user must run in Supabase SQL Editor
+- `package.json`: add `grammy ^1.31.0`
+- `package-lock.json`: regenerated with grammy
+- `.env.example`: documents all 7 new env vars
+
+**Build gate:** `npm ci` + `npm run lint` + `next build` all green (verified in throwaway worktree).
+
+**Remaining user actions for PR A:**
+- Merge PR A
+- Run `supabase/migrations/0004_telegram_users.sql` in Supabase SQL Editor
+- Create 6 BotFather bot tokens (customer, incart, purchaser, arrived, delivery, ops)
+- Set `TELEGRAM_WEBHOOK_SECRET` + all 6 tokens as Vercel env vars
+- Register webhooks via `scripts/set-webhooks.mjs` (PR B will add this script)
 
 ### PR #9 — `feat/stale-checker` (M1)
 **URL:** https://github.com/NahomX/Sole-supply2/pull/9
@@ -42,7 +69,7 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 
 Once all three vars are set and Cron confirmed, merge PR #9.
 
-**Verify gate:** `npm run lint` + `npm run build` green on branch (already confirmed).
+**Note:** PR B will repoint the stale-digest to use `OPS_BOT_TOKEN` instead of the standalone `TELEGRAM_BOT_TOKEN`, so these two vars can be unified after PR B merges.
 
 ---
 
@@ -59,15 +86,29 @@ Once all three vars are set and Cron confirmed, merge PR #9.
 
 ---
 
-## Vercel env vars to set (for M1 / PR #9)
+## Vercel env vars to set
+
+### For PR A (Telegram bots infra + customer bot):
+
+| Variable | What it is | How to get it |
+|---|---|---|
+| `TELEGRAM_WEBHOOK_SECRET` | Shared secret for all bot webhooks | `openssl rand -hex 32` |
+| `CUSTOMER_BOT_TOKEN` | Customer browse bot token | @BotFather → /newbot |
+| `INCART_BOT_TOKEN` | In-cart add bot token | @BotFather → /newbot |
+| `PURCHASER_BOT_TOKEN` | Purchaser work bot token | @BotFather → /newbot |
+| `ARRIVED_BOT_TOKEN` | Arrived work bot token | @BotFather → /newbot |
+| `DELIVERY_BOT_TOKEN` | Delivery work bot token | @BotFather → /newbot |
+| `OPS_BOT_TOKEN` | Owner ops bot token | @BotFather → /newbot |
+
+### For PR #9 (stale-digest cron):
 
 | Variable | What it is | How to get it |
 |---|---|---|
 | `CRON_SECRET` | Shared secret protecting `/api/cron/stale-digest` | Generate: `openssl rand -hex 32` |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token | @BotFather on Telegram |
-| `TELEGRAM_CHAT_ID` | Destination chat/channel ID | `https://api.telegram.org/bot<TOKEN>/getUpdates` after sending a message to the bot |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token for the digest | @BotFather (or reuse OPS_BOT_TOKEN after PR B) |
+| `TELEGRAM_CHAT_ID` | Destination chat/channel ID | `https://api.telegram.org/bot<TOKEN>/getUpdates` after sending a message |
 
-Set in Vercel Dashboard → Project → Settings → Environment Variables. Vercel Cron automatically injects `CRON_SECRET` as `Authorization: Bearer <value>` on each invocation.
+Set all in Vercel Dashboard → Project → Settings → Environment Variables.
 
 ---
 
@@ -78,6 +119,7 @@ Set in Vercel Dashboard → Project → Settings → Environment Variables. Verc
 3. ✅ **Stale threshold** = **7 days**.
 4. ✅ **Stale surfacing** = **dashboard + periodic digest** (Vercel Cron, Telegram).
 5. ✅ **Digest channel** = **Telegram** (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`).
+6. ✅ **Telegram bots plan** = approved (quizzical-frolicking-sparkle.md). Logistics 4-state: `in_cart → purchased → arrived → delivered`. One shared codebase + registry. grammY + Vercel webhooks. 6 bots. Two PRs.
 
 ---
 
@@ -91,6 +133,7 @@ Note: `package-lock.json` + `.eslintrc.json` were generated and committed as par
 
 ## Changelog
 
+- v5 — 2026-06-02 — pm-sole-supply — Telegram bots PR A pushed. New branch feat/telegram-bots (from origin/main bd47541). Files: lib/shoes.ts (extracted logic), lib/telegram.ts, lib/bots/registry.ts, lib/bots/auth.ts, lib/bots/handlers.ts, app/api/telegram/[bot]/route.ts, supabase/migrations/0004_telegram_users.sql. Updated: app/api/shoes/route.ts, app/api/shoes/[id]/route.ts, package.json (+grammy), package-lock.json, .env.example. Build gate green. PR A opened (see PR URL in PM report). 0004 migration SQL must be run by user. 6 BotFather tokens + webhook registration are user actions. Compare-and-swap v4→v5 (N_start=N_disk=4).
 - v4 — 2026-06-02 — pm-sole-supply — Doc-reconcile only. PR #8 (feat/logistics-in-cart-and-ui) marked MERGED (bd47541, 2026-06-01 17:35 UTC). Migration 0003_logistics_in_cart.sql confirmed run in Supabase by user (2026-06-02), no orphaned dispatched rows — M2 fully live. PR #9 (feat/stale-checker) remains open; blocker updated to: Telegram vars (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) not yet set in Vercel, plus CRON_SECRET and Vercel plan Cron confirmation. No code changes. Compare-and-swap v3→v4 (N_start=N_disk=3).
 - v3 — 2026-05-31 — pm-sole-supply — Built and shipped M1+M2+M3 to two PRs. PR #8 (feat/logistics-in-cart-and-ui): M2 enum change (in_cart/dispatched) + M3 customer labels. PR #9 (feat/stale-checker): M1 dashboard banner + Telegram cron digest. Both lint+build green. Migration SQL handed to user. Vercel env vars documented. Compare-and-swap v2→v3 (N_start=N_disk=2).
 - v2 — 2026-05-31 — pm-sole-supply — Locked the 4 scoping decisions from the user: (1) remove `dispatched` entirely; (2) remap existing `dispatched` rows → `purchased` (encoded in 0003 before constraint reseat); (3) stale threshold = 7 days; (4) stale surfacing = dashboard **+ periodic digest**. M1 expanded with part B (Vercel-Cron `/api/cron/stale-digest` route + `vercel.json` + `CRON_SECRET`); one small open item remains = digest channel (Telegram proposed vs. email). M2/M3 unchanged in shape, now LOCKED. Compare-and-swap v1→v2 (N_start=N_disk=1).
