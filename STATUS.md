@@ -1,8 +1,8 @@
 # Sole Supply — STATUS
 
-**Version:** 5
-**Last updated:** 2026-06-02 (pm-sole-supply — Telegram bots PR A pushed: infra + customer bot on feat/telegram-bots)
-**State:** TWO PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars) + PR A (feat/telegram-bots, open, awaiting review). PR B (work bots + ops bot) is next after PR A merges.
+**Version:** 6
+**Last updated:** 2026-06-02 (pm-sole-supply — Both Telegram bot PRs open: PR A #10 + PR B #11)
+**State:** THREE PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots, infra + customer bot), #11 PR B (feat/telegram-bots-work, work bots + ops bot + stale-digest repoint). Merge order: PR A first, then PR B; PR #9 can merge independently.
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
 
@@ -25,8 +25,8 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 
 ## OPEN PRs
 
-### PR A — `feat/telegram-bots` — Telegram bots infra + customer bot
-**URL:** (see below — opened this session)
+### PR A (#10) — `feat/telegram-bots` — Telegram bots infra + customer bot
+**URL:** https://github.com/NahomX/Sole-supply2/pull/10
 **Branch:** `feat/telegram-bots` (branched from `origin/main` at `bd47541`)
 
 **What's in it:**
@@ -51,6 +51,23 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 - Create 6 BotFather bot tokens (customer, incart, purchaser, arrived, delivery, ops)
 - Set `TELEGRAM_WEBHOOK_SECRET` + all 6 tokens as Vercel env vars
 - Register webhooks via `scripts/set-webhooks.mjs` (PR B will add this script)
+
+### PR B (#11) — `feat/telegram-bots-work` — Work bots + ops bot + stale-digest repoint
+**URL:** https://github.com/NahomX/Sole-supply2/pull/11
+**Branch:** `feat/telegram-bots-work` (branched from `feat/telegram-bots`)
+**Merge after:** PR A (#10)
+
+**What's in it:**
+- `scripts/set-webhooks.mjs` (new): register/clear/inspect webhooks for all 6 bots
+- `lib/staleness.ts` (new): `isStale()` + `staleAgeDays()` helpers (identical to feat/stale-checker content)
+- `app/api/cron/stale-digest/route.ts` (new): stale digest repointed to `OPS_BOT_TOKEN`; uses `lib/telegram.sendTelegramMessage`
+- `vercel.json` (new): Vercel Cron entry for stale-digest
+
+**Note:** Work bot + ops bot handlers are already in `lib/bots/handlers.ts` (PR A). No additional code.
+
+**Merge conflict notes:** If PR #9 merges before PR B, conflicts on `lib/staleness.ts`, `app/api/cron/stale-digest/route.ts`, `vercel.json`. Keep PR B's version of the digest route. `AdminDashboard.tsx` from PR #9 merges cleanly.
+
+---
 
 ### PR #9 — `feat/stale-checker` (M1)
 **URL:** https://github.com/NahomX/Sole-supply2/pull/9
@@ -133,7 +150,8 @@ Note: `package-lock.json` + `.eslintrc.json` were generated and committed as par
 
 ## Changelog
 
-- v5 — 2026-06-02 — pm-sole-supply — Telegram bots PR A pushed. New branch feat/telegram-bots (from origin/main bd47541). Files: lib/shoes.ts (extracted logic), lib/telegram.ts, lib/bots/registry.ts, lib/bots/auth.ts, lib/bots/handlers.ts, app/api/telegram/[bot]/route.ts, supabase/migrations/0004_telegram_users.sql. Updated: app/api/shoes/route.ts, app/api/shoes/[id]/route.ts, package.json (+grammy), package-lock.json, .env.example. Build gate green. PR A opened (see PR URL in PM report). 0004 migration SQL must be run by user. 6 BotFather tokens + webhook registration are user actions. Compare-and-swap v4→v5 (N_start=N_disk=4).
+- v6 — 2026-06-02 — pm-sole-supply — PR B pushed (#11, feat/telegram-bots-work). Files: scripts/set-webhooks.mjs, lib/staleness.ts, app/api/cron/stale-digest/route.ts (ops-bot repoint), vercel.json. Build gate green. PR A #10 URL updated. STATUS describes 3 open PRs and merge order. Compare-and-swap v5→v6 (N_start=N_disk=5).
+- v5 — 2026-06-02 — pm-sole-supply — Telegram bots PR A pushed. New branch feat/telegram-bots (from origin/main bd47541). Files: lib/shoes.ts (extracted logic), lib/telegram.ts, lib/bots/registry.ts, lib/bots/auth.ts, lib/bots/handlers.ts, app/api/telegram/[bot]/route.ts, supabase/migrations/0004_telegram_users.sql. Updated: app/api/shoes/route.ts, app/api/shoes/[id]/route.ts, package.json (+grammy), package-lock.json, .env.example. Build gate green. PR A opened at #10. 0004 migration SQL must be run by user. 6 BotFather tokens + webhook registration are user actions. Compare-and-swap v4→v5 (N_start=N_disk=4).
 - v4 — 2026-06-02 — pm-sole-supply — Doc-reconcile only. PR #8 (feat/logistics-in-cart-and-ui) marked MERGED (bd47541, 2026-06-01 17:35 UTC). Migration 0003_logistics_in_cart.sql confirmed run in Supabase by user (2026-06-02), no orphaned dispatched rows — M2 fully live. PR #9 (feat/stale-checker) remains open; blocker updated to: Telegram vars (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) not yet set in Vercel, plus CRON_SECRET and Vercel plan Cron confirmation. No code changes. Compare-and-swap v3→v4 (N_start=N_disk=3).
 - v3 — 2026-05-31 — pm-sole-supply — Built and shipped M1+M2+M3 to two PRs. PR #8 (feat/logistics-in-cart-and-ui): M2 enum change (in_cart/dispatched) + M3 customer labels. PR #9 (feat/stale-checker): M1 dashboard banner + Telegram cron digest. Both lint+build green. Migration SQL handed to user. Vercel env vars documented. Compare-and-swap v2→v3 (N_start=N_disk=2).
 - v2 — 2026-05-31 — pm-sole-supply — Locked the 4 scoping decisions from the user: (1) remove `dispatched` entirely; (2) remap existing `dispatched` rows → `purchased` (encoded in 0003 before constraint reseat); (3) stale threshold = 7 days; (4) stale surfacing = dashboard **+ periodic digest**. M1 expanded with part B (Vercel-Cron `/api/cron/stale-digest` route + `vercel.json` + `CRON_SECRET`); one small open item remains = digest channel (Telegram proposed vs. email). M2/M3 unchanged in shape, now LOCKED. Compare-and-swap v1→v2 (N_start=N_disk=1).
