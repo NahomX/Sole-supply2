@@ -1,27 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  supabaseService,
-  ShoeStatus,
-  LogisticsStatus,
-} from "@/lib/supabase";
+import { supabaseService } from "@/lib/supabase";
+import type { ShoeStatus, LogisticsStatus } from "@/lib/supabase";
 import { requireRole } from "@/lib/auth";
+import { STATUSES, LOGISTICS } from "@/lib/shoes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const STATUSES: ShoeStatus[] = ["upcoming", "available", "sold"];
-const LOGISTICS: LogisticsStatus[] = [
-  "in_cart",
-  "purchased",
-  "arrived",
-  "delivered",
-];
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  // Admins can change any field. Logisters are restricted to logistics_status.
+  // Admins can change any field. Shippers are restricted to logistics_status.
   const { session, error: gateError } = await requireRole(["admin", "shipper"]);
   if (gateError) return gateError;
   const role = session?.profile?.role ?? "customer";
@@ -45,7 +35,7 @@ export async function PATCH(
 
   // Admin-only fields.
   if (role === "admin") {
-    if (body.status && STATUSES.includes(body.status)) patch.status = body.status;
+    if (body.status && STATUSES.includes(body.status)) patch.status = body.status as ShoeStatus;
     if (typeof body.price_usd === "number") patch.price_usd = body.price_usd;
     if (typeof body.sizes === "string") patch.sizes = body.sizes;
     if (typeof body.notes === "string") patch.notes = body.notes;

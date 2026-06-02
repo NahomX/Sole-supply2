@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseService } from "@/lib/supabase";
 import { requireRole } from "@/lib/auth";
-import { brandFromUrl } from "@/lib/brand";
-import { scrapeOpenGraph } from "@/lib/scrape";
+import { createShoeFromUrl } from "@/lib/shoes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,30 +16,19 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
   const url = String(body.url ?? "");
-  if (!/^https?:\/\//i.test(url)) {
-    return NextResponse.json({ error: "invalid url" }, { status: 400 });
-  }
 
-  const scraped = await scrapeOpenGraph(url).catch(() => ({
-    title: null,
-    image: null,
-    price: null,
-  }));
-  const brand = brandFromUrl(url);
-
-  const row = {
+  const result = await createShoeFromUrl({
     url,
-    title: (body.title ?? scraped.title ?? url).toString().slice(0, 300),
-    brand,
-    image_url: body.image_url ?? scraped.image ?? null,
-    price_usd: body.price_usd ?? scraped.price ?? null,
+    title: body.title ?? null,
+    image_url: body.image_url ?? null,
+    price_usd: body.price_usd ?? null,
     sizes: body.sizes ?? null,
     notes: body.notes ?? null,
-    status: "upcoming",
-  };
+  });
 
-  const db = supabaseService();
-  const { data, error } = await db.from("shoes").insert(row).select().single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ shoe: data });
+  if (result.error) {
+    const status = result.error === "invalid url" ? 400 : 500;
+    return NextResponse.json({ error: result.error }, { status });
+  }
+  return NextResponse.json({ shoe: result.shoe });
 }
