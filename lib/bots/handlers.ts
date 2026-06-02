@@ -164,11 +164,11 @@ export function registerIncartBot(bot: Bot, entry: BotEntry) {
       url: text,
       logistics_status: "in_cart",
     });
-    if (result.error) {
+    if (result.error || !result.shoe) {
       await ctx.api.editMessageText(
         ctx.chat.id,
         msg.message_id,
-        `Error: ${result.error}`
+        `Error: ${result.error ?? "unknown error"}`
       );
       return;
     }
@@ -262,7 +262,7 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
       return;
     }
     await ctx.reply(
-      `Done! "${result.shoe.title}" is now *${escMd(config.toStatus)}*`,
+      `Done! "${result.shoe!.title}" is now *${escMd(config.toStatus)}*`,
       { parse_mode: "MarkdownV2" }
     );
   });
@@ -366,7 +366,7 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
       await ctx.reply(`Error: ${result.error}`);
       return;
     }
-    await ctx.reply(`Sales status set to *${escMd(newStatus)}* for "${escMd(result.shoe.title)}"`, {
+    await ctx.reply(`Sales status set to *${escMd(newStatus)}* for "${escMd(result.shoe!.title)}"`, {
       parse_mode: "MarkdownV2",
     });
   });
@@ -424,7 +424,7 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
     }
     const label = newStatus ?? "cleared";
     await ctx.reply(
-      `Logistics status set to *${escMd(label)}* for "${escMd(result.shoe.title)}"`,
+      `Logistics status set to *${escMd(label)}* for "${escMd(result.shoe!.title)}"`,
       { parse_mode: "MarkdownV2" }
     );
   });
