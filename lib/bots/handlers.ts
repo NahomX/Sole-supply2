@@ -27,7 +27,19 @@ import {
   STATUSES,
   LOGISTICS,
 } from "@/lib/shoes";
+import type { FeedMeta } from "@/lib/shoes";
 import type { Shoe, LogisticsStatus, ShoeStatus } from "@/lib/supabase";
+
+// ---------------------------------------------------------------------------
+// Helper — build FeedMeta from a grammY Context + bot entry name.
+// ---------------------------------------------------------------------------
+
+function botMeta(ctx: Context, botName: string): FeedMeta {
+  const username = ctx.from?.username;
+  const firstName = ctx.from?.first_name;
+  const actorLabel = username ? `@${username}` : (firstName ?? `tg:${ctx.from?.id}`);
+  return { actorLabel, source: botName };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -163,6 +175,7 @@ export function registerIncartBot(bot: Bot, entry: BotEntry) {
     const result = await createShoeFromUrl({
       url: text,
       logistics_status: "in_cart",
+      meta: botMeta(ctx, entry.name),
     });
     if (result.error || !result.shoe) {
       await ctx.api.editMessageText(
@@ -256,7 +269,7 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
     }
     await ctx.answerCallbackQuery();
     const shoeId = ctx.match[1];
-    const result = await setLogisticsStatus(shoeId, config.toStatus);
+    const result = await setLogisticsStatus(shoeId, config.toStatus, botMeta(ctx, entry.name));
     if (result.error) {
       await ctx.reply(`Error: ${result.error}`);
       return;
@@ -361,7 +374,7 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
     await ctx.answerCallbackQuery();
     const shoeId = ctx.match[1];
     const newStatus = ctx.match[2] as ShoeStatus;
-    const result = await setSalesStatus(shoeId, newStatus);
+    const result = await setSalesStatus(shoeId, newStatus, botMeta(ctx, entry.name));
     if (result.error) {
       await ctx.reply(`Error: ${result.error}`);
       return;
@@ -417,7 +430,7 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
     const shoeId = ctx.match[1];
     const raw = ctx.match[2];
     const newStatus = raw === "__null__" ? null : (raw as LogisticsStatus);
-    const result = await setLogisticsStatus(shoeId, newStatus);
+    const result = await setLogisticsStatus(shoeId, newStatus, botMeta(ctx, entry.name));
     if (result.error) {
       await ctx.reply(`Error: ${result.error}`);
       return;
