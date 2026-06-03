@@ -32,9 +32,10 @@ async function postOpsFeed(text: string): Promise<void> {
   const chatId = process.env.OPS_FEED_CHAT_ID;
   if (!token || !chatId) return;
   try {
-    await sendTelegramMessage(token, chatId, text);
+    // 3 s hard deadline so an awaited call never stalls the serverless function.
+    await sendTelegramMessage(token, chatId, text, undefined, 3000);
   } catch {
-    // Fire-and-forget: log but never propagate.
+    // Never propagate — a feed failure must never break a status transition.
     console.error("[ops-feed] failed to send message");
   }
 }
@@ -126,7 +127,7 @@ export async function createShoeFromUrl(
   // not posted here — they appear in the admin dashboard instead.
   // Fire-and-forget — never blocks or throws.
   if (row.logistics_status === "in_cart") {
-    void postOpsFeed(
+    await postOpsFeed(
       `\u{1F195} ${shoe.title} added to in-cart${buildFeedSuffix(meta)}`
     );
   }
@@ -178,7 +179,7 @@ export async function setLogisticsStatus(
   const prev = before?.logistics_status ?? null;
   if (prev !== to) {
     const label = to ?? "cleared";
-    void postOpsFeed(
+    await postOpsFeed(
       `\u{1F45F} ${shoe.title} \u{2192} ${label}${buildFeedSuffix(meta)}`
     );
   }
@@ -223,7 +224,7 @@ export async function setSalesStatus(
 
   // Only post when the value actually changed.
   if (before?.status !== to) {
-    void postOpsFeed(
+    await postOpsFeed(
       `\u{1F45F} ${shoe.title} \u{2192} ${to}${buildFeedSuffix(meta)}`
     );
   }
