@@ -1,7 +1,7 @@
 # Sole Supply — STATUS
 
-**Version:** 7
-**Last updated:** 2026-06-02 (pm-sole-supply — PR #12 ops feed opened, 4 PRs now open)
+**Version:** 8
+**Last updated:** 2026-06-02 (pm-sole-supply — PR #12 reliability fix: await+timeout on ops feed)
 **State:** FOUR PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots), #11 PR B (feat/telegram-bots-work), #12 PR C (feat/ops-feed, stacked on PR B). Merge order: #10 → #11 → #12; PR #9 can merge independently.
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
@@ -83,7 +83,7 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 
 **New env var required:** `OPS_FEED_CHAT_ID` (negative integer; see `.env.example`). Pairs with existing `OPS_BOT_TOKEN`. Feature silently no-ops if either var is unset.
 
-**Build gate:** `npm ci` + `npm run lint` + `next build` all green (verified in throwaway worktree, commit b8795d6).
+**Build gate:** `npm ci` + `npm run lint` + `next build` all green (verified in throwaway worktree, commit 27e99ec — await+timeout fix).
 
 **Remaining user actions for PR C:**
 - Merge PRs #10, #11 first, then merge #12.
@@ -188,6 +188,7 @@ Note: `package-lock.json` + `.eslintrc.json` were generated and committed as par
 
 ## Changelog
 
+- v8 — 2026-06-02 — pm-sole-supply — PR #12 reliability fix committed (27e99ec, feat/ops-feed): sendTelegramMessage gets optional timeoutMs param (AbortController, default=no timeout); postOpsFeed passes 3000; all three void postOpsFeed call sites changed to await. Build gate green. PR #12 updated in place.
 - v7 — 2026-06-02 — pm-sole-supply — PR C (#12) ops feed opened (feat/ops-feed, stacked on feat/telegram-bots-work). Files: lib/shoes.ts (FeedMeta, postOpsFeed, meta param on all 3 transition fns), app/api/shoes/[id]/route.ts (migrated to shared helpers + web actor), app/api/shoes/route.ts (+meta), lib/bots/handlers.ts (botMeta helper + 4 call sites), .env.example (OPS_FEED_CHAT_ID docs). Build gate green (commit b8795d6). 4 PRs now open. Compare-and-swap v6→v7 (N_start=N_disk=6).
 - v6 — 2026-06-02 — pm-sole-supply — PR B pushed (#11, feat/telegram-bots-work). Files: scripts/set-webhooks.mjs, lib/staleness.ts, app/api/cron/stale-digest/route.ts (ops-bot repoint), vercel.json. Build gate green. PR A #10 URL updated. STATUS describes 3 open PRs and merge order. Compare-and-swap v5→v6 (N_start=N_disk=5).
 - v5 — 2026-06-02 — pm-sole-supply — Telegram bots PR A pushed. New branch feat/telegram-bots (from origin/main bd47541). Files: lib/shoes.ts (extracted logic), lib/telegram.ts, lib/bots/registry.ts, lib/bots/auth.ts, lib/bots/handlers.ts, app/api/telegram/[bot]/route.ts, supabase/migrations/0004_telegram_users.sql. Updated: app/api/shoes/route.ts, app/api/shoes/[id]/route.ts, package.json (+grammy), package-lock.json, .env.example. Build gate green. PR A opened at #10. 0004 migration SQL must be run by user. 6 BotFather tokens + webhook registration are user actions. Compare-and-swap v4→v5 (N_start=N_disk=4).
