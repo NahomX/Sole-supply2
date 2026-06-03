@@ -74,7 +74,9 @@ async function guardAllowlist(
   }
   const result = await checkAllowlist(telegramId, botName, requiredRole);
   if (!result.allowed) {
-    await ctx.reply(`Access denied: ${result.reason}`);
+    await ctx.reply(
+      `Access denied: ${result.reason}\n\nYour Telegram ID: ${telegramId}`
+    );
     return false;
   }
   return true;
@@ -91,7 +93,7 @@ export function registerCustomerBot(bot: Bot, _entry: BotEntry) {
       .row()
       .text("Coming soon", "list:upcoming");
     await ctx.reply(
-      "Welcome to Sole Supply! Browse our sneaker collection:",
+      "Welcome to Berebaso! Browse our sneaker collection:",
       { reply_markup: kb }
     );
   });
@@ -255,6 +257,11 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
 
   bot.command("start", listAndShow);
   bot.command("list", listAndShow);
+  bot.command("whoami", async (ctx) => {
+    await ctx.reply(
+      `Your Telegram ID: ${ctx.from?.id ?? "unknown"}\nUsername: @${ctx.from?.username ?? "none"}`
+    );
+  });
   bot.command("help", async (ctx) => {
     if (!(await guardAllowlist(ctx, entry.name, "shipper"))) return;
     await ctx.reply(
@@ -289,7 +296,7 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
   bot.command("start", async (ctx) => {
     if (!(await guardAllowlist(ctx, entry.name, "admin"))) return;
     await ctx.reply(
-      "Sole Supply ops bot.\n\nCommands:\n" +
+      "Berebaso ops bot.\n\nCommands:\n" +
         "/list — full pipeline overview\n" +
         "/whoami — your Telegram ID\n" +
         "/sales — manage sales status\n" +

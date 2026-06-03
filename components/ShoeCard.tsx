@@ -58,26 +58,38 @@ export function ShoeCard({
   }
 
   return (
+    /*
+      Visual polish:
+      - rounded-xl (up from rounded-lg) + resting shadow-sm
+      - hover: subtle lift (-translate-y-0.5) + deeper shadow + lighter border
+      - GPU-only transitions: transform + shadow (no layout reflow)
+      - group class enables image zoom on card hover
+    */
     <div
-      className={`rounded-lg border border-neutral-200 overflow-hidden bg-white flex flex-col ${
+      className={`group rounded-xl border border-neutral-200 overflow-hidden bg-white flex flex-col shadow-sm transition-shadow transition-transform duration-200 hover:shadow-lg hover:-translate-y-0.5 hover:border-neutral-300 ${
         dim ? "opacity-50" : ""
       }`}
     >
-      <div className="aspect-square bg-neutral-100 relative">
+      <div className="aspect-square bg-neutral-100 relative overflow-hidden">
         {shoe.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={shoe.image_url}
             alt={shoe.title}
-            className="absolute inset-0 w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center text-neutral-400 text-sm">
             No image
           </div>
         )}
+        {/*
+          Badge: rounded-full + ring-1 for crispness on photos.
+          "In stock" uses brand.green (#1F7A52) instead of generic green-600.
+          Other badges keep semantic colours but are softened via label.className.
+        */}
         <span
-          className={`absolute top-2 left-2 text-[10px] uppercase tracking-wider px-2 py-1 rounded ${label.className}`}
+          className={`absolute top-2 left-2 text-[10px] uppercase tracking-wider px-2 py-1 rounded-full ring-1 ring-black/5 ${label.className}`}
         >
           {label.text}
         </span>
@@ -150,7 +162,10 @@ export function ShoeCard({
                 type="button"
                 onClick={send}
                 disabled={loading}
-                className="flex-1 text-xs bg-black text-white rounded px-2 py-1 disabled:opacity-50"
+                className="flex-1 text-xs rounded-lg px-2 py-1 disabled:opacity-50 text-white"
+                style={{ backgroundColor: "#2A1A12" }}
+                onMouseOver={(e) => { if (!loading) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#3E2A1C"; }}
+                onMouseOut={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2A1A12"; }}
               >
                 {loading ? "Sending..." : "Send request"}
               </button>
@@ -158,7 +173,7 @@ export function ShoeCard({
                 type="button"
                 onClick={() => setMode("idle")}
                 disabled={loading}
-                className="text-xs border border-neutral-300 rounded px-2 py-1"
+                className="text-xs border border-neutral-300 rounded-lg px-2 py-1"
               >
                 Cancel
               </button>
@@ -170,22 +185,39 @@ export function ShoeCard({
           <button
             type="button"
             onClick={() => setMode(mode === "info" ? "idle" : "info")}
-            className="flex-1 text-xs border border-neutral-300 rounded px-2 py-1.5 hover:bg-neutral-50"
+            className="flex-1 text-xs border border-neutral-300 rounded-lg px-2 py-1.5 hover:bg-neutral-50"
           >
             {mode === "info" ? "Hide info" : "Info"}
           </button>
           {alreadyRequested && shoe.status !== "sold" && (
-            <div className="flex-1 text-xs text-center text-neutral-500 border border-neutral-200 rounded px-2 py-1.5">
+            <div className="flex-1 text-xs text-center text-neutral-500 border border-neutral-200 rounded-lg px-2 py-1.5">
               Requested
             </div>
           )}
           {canShowRequest && mode !== "request" && (
+            /*
+              "I want this" CTA — primary brand button.
+              Amharic: "ይሄን እፈልጋለሁ" (best-effort; owner must verify before launch)
+              Shows Amharic text as primary with English as secondary/aria label for
+              screen readers, keeping the button width flexible (Amharic glyphs differ
+              in render width from English). Inline style used for brand color since
+              brand.espresso is a custom token not available as a Tailwind class
+              without JIT purge of the dynamic className variant.
+            */
             <button
               type="button"
               onClick={() => setMode("request")}
-              className="flex-1 text-xs bg-black text-white rounded px-2 py-1.5"
+              className="flex-1 text-xs rounded-lg px-2 py-1.5 text-white font-medium"
+              style={{ backgroundColor: "#2A1A12" }}
+              onMouseOver={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#3E2A1C"; }}
+              onMouseOut={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2A1A12"; }}
+              aria-label="I want this"
+              title="I want this / ይሄን እፈልጋለሁ"
             >
-              I want this
+              {/* Amharic primary — NOTE: owner must verify spelling before launch */}
+              <span lang="am" style={{ fontFamily: "'Noto Sans Ethiopic', 'Abyssinica SIL', 'Nyala', sans-serif", lineHeight: 1.4 }}>
+                ይሄን እፈልጋለሁ
+              </span>
             </button>
           )}
         </div>

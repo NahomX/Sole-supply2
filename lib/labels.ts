@@ -38,10 +38,11 @@ export function customerLabel(shoe: Shoe): CustomerLabel {
   }
 
   // Available → In stock.
+  // Uses brand.green (#1F7A52) for badge — brand-aligned muted green.
   if (status === "available") {
     return {
       text: "In stock",
-      className: "bg-green-600 text-white",
+      className: "bg-[#1F7A52] text-white",
       section: "in-stock",
     };
   }
