@@ -340,8 +340,8 @@ function SizeStrip({ sizes }: { sizes: string | null }) {
 
       {/*
         Chip grid — uses flex-wrap so chips reflow on narrow (2-up phone) cards.
-        Very compact sizing: text-[9px] + px-1 py-0.5 keeps chips ~24px tall and
-        ~28-32px wide so even 13 chips across a 160px card wrap to ≤3 rows.
+        Compact sizing: text-[11px] + px-1.5 py-0.5 keeps chips tidy while
+        remaining legible; 13 chips across a 160px card wrap to ≤3 rows.
       */}
       <div
         className="flex flex-wrap gap-0.5"
@@ -360,17 +360,17 @@ function SizeStrip({ sizes }: { sizes: string | null }) {
               title={label}
               aria-label={label}
               className={[
-                "inline-flex flex-col items-center leading-none rounded px-1 py-0.5",
+                "inline-flex flex-col items-center leading-none rounded px-1.5 py-0.5",
                 entry.available
                   ? // Available: warm neutral bg, readable text
                     "bg-neutral-100 text-neutral-700"
                   : // Unavailable: greyed bg, muted text, strikethrough
-                    "bg-neutral-50 text-neutral-300",
+                    "bg-neutral-50 text-neutral-400",
               ].join(" ")}
             >
               <span
                 className={[
-                  "text-[9px] font-medium",
+                  "text-[11px] font-medium",
                   entry.available ? "" : "line-through",
                 ].join(" ")}
               >
@@ -378,8 +378,8 @@ function SizeStrip({ sizes }: { sizes: string | null }) {
               </span>
               <span
                 className={[
-                  "text-[8px] leading-none mt-px",
-                  entry.available ? "text-neutral-400" : "text-neutral-200",
+                  "text-[9px] leading-none mt-px",
+                  entry.available ? "text-neutral-500" : "text-neutral-300",
                 ].join(" ")}
               >
                 {entry.eu}
