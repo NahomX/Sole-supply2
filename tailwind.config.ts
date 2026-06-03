@@ -5,16 +5,20 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        // Ethiopic (Geez) font stack for Amharic text — ensures "በረባሶ" and
-        // other Amharic strings render correctly on Windows, iOS, and Android.
-        // Noto Sans Ethiopic covers the full Ethiopic Unicode block; Abyssinica
-        // SIL and Nyala are common system fallbacks.
+        // Inter is the Latin/UI font (loaded via next/font/google, CSS var --font-inter).
+        // Noto Sans Ethiopic is now also loaded via next/font/google (CSS var --font-ethiopic)
+        // so Amharic glyphs download on any device, including iOS + older Android, instead
+        // of falling back to system Ethiopic fonts (which may not exist → tofu boxes).
+        // Abyssinica SIL and Nyala remain as CSS fallbacks for edge cases.
         sans: [
           "var(--font-inter)",
-          "Noto Sans Ethiopic",
+          "system-ui",
+          "sans-serif",
+        ],
+        ethiopic: [
+          "var(--font-ethiopic)",
           "Abyssinica SIL",
           "Nyala",
-          "system-ui",
           "sans-serif",
         ],
       },

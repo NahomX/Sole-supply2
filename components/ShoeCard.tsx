@@ -26,6 +26,8 @@ export function ShoeCard({
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Tracks whether the product image has errored so we can show the empty state.
+  const [imgError, setImgError] = useState(false);
 
   const reviewsUrl = `https://www.google.com/search?q=${encodeURIComponent(
     `${shoe.title} reviews`
@@ -71,22 +73,51 @@ export function ShoeCard({
       }`}
     >
       <div className="aspect-square bg-neutral-100 relative overflow-hidden">
-        {shoe.image_url ? (
+        {shoe.image_url && !imgError ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={shoe.image_url}
             alt={shoe.title}
             className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            onError={() => setImgError(true)}
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-neutral-400 text-sm">
-            No image
+          /*
+            Empty/error state — shown when image_url is missing OR when the
+            image fails to load (dead URL, CORS block, retailer CDN change).
+            Product images come from arbitrary retailer hosts (the scraper
+            accepts any URL), so load errors are expected and this fallback
+            is the correct resilience mechanism — not restricting remotePatterns.
+          */
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-neutral-400">
+            <svg
+              aria-hidden="true"
+              width="32"
+              height="32"
+              viewBox="0 0 64 64"
+              fill="none"
+              className="text-neutral-300"
+            >
+              <path
+                d="M8 44c0 0 4-8 12-10l8-2 6-8 10 4 4-4 8 6v8c0 2-2 4-4 4H12c-2 0-4-2-4-4z"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M20 32l4 6M28 30l2 8"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+            <span className="text-xs">No image</span>
           </div>
         )}
         {/*
           Badge: rounded-full + ring-1 for crispness on photos.
           "In stock" uses brand.green (#1F7A52) instead of generic green-600.
-          Other badges keep semantic colours but are softened via label.className.
+          Other badges use brand-palette classes via label.className.
         */}
         <span
           className={`absolute top-2 left-2 text-[10px] uppercase tracking-wider px-2 py-1 rounded-full ring-1 ring-black/5 ${label.className}`}
@@ -162,10 +193,7 @@ export function ShoeCard({
                 type="button"
                 onClick={send}
                 disabled={loading}
-                className="flex-1 text-xs rounded-lg px-2 py-1 disabled:opacity-50 text-white"
-                style={{ backgroundColor: "#2A1A12" }}
-                onMouseOver={(e) => { if (!loading) (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#3E2A1C"; }}
-                onMouseOut={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2A1A12"; }}
+                className="flex-1 text-xs rounded-lg px-2 py-2.5 disabled:opacity-50 text-white bg-brand-espresso hover:bg-brand-coffee focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-amber transition-colors"
               >
                 {loading ? "Sending..." : "Send request"}
               </button>
@@ -173,7 +201,7 @@ export function ShoeCard({
                 type="button"
                 onClick={() => setMode("idle")}
                 disabled={loading}
-                className="text-xs border border-neutral-300 rounded-lg px-2 py-1"
+                className="text-xs border border-neutral-300 rounded-lg px-2 py-2.5"
               >
                 Cancel
               </button>
@@ -181,42 +209,49 @@ export function ShoeCard({
           </div>
         )}
 
-        <div className="mt-auto flex gap-2 pt-1">
+        {/*
+          Action buttons row — items-stretch ensures equal height so the Amharic
+          CTA glyph (taller than Latin at the same font size) and the "Info" button
+          stay the same height. py-2.5 min gives ~44 px tap targets on mobile.
+        */}
+        <div className="mt-auto flex items-stretch gap-2 pt-1">
           <button
             type="button"
             onClick={() => setMode(mode === "info" ? "idle" : "info")}
-            className="flex-1 text-xs border border-neutral-300 rounded-lg px-2 py-1.5 hover:bg-neutral-50"
+            className="flex-1 text-xs border border-neutral-300 rounded-lg px-2 py-2.5 hover:bg-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-amber"
           >
             {mode === "info" ? "Hide info" : "Info"}
           </button>
           {alreadyRequested && shoe.status !== "sold" && (
-            <div className="flex-1 text-xs text-center text-neutral-500 border border-neutral-200 rounded-lg px-2 py-1.5">
+            <div className="flex-1 text-xs text-center text-neutral-500 border border-neutral-200 rounded-lg px-2 py-2.5">
               Requested
             </div>
           )}
           {canShowRequest && mode !== "request" && (
             /*
-              "I want this" CTA — primary brand button.
-              Amharic: "ይሄን እፈልጋለሁ" (best-effort; owner must verify before launch)
-              Shows Amharic text as primary with English as secondary/aria label for
-              screen readers, keeping the button width flexible (Amharic glyphs differ
-              in render width from English). Inline style used for brand color since
-              brand.espresso is a custom token not available as a Tailwind class
-              without JIT purge of the dynamic className variant.
+              Reserve CTA — primary brand button.
+              Amharic: "ይያዙ" = "reserve / hold" (confirmed by owner).
+              Hover state uses Tailwind brand tokens (bg-brand-espresso hover:bg-brand-coffee)
+              so keyboard :focus-visible works correctly — the previous JS onMouseOver/onMouseOut
+              approach bypassed CSS focus styles.
             */
             <button
               type="button"
               onClick={() => setMode("request")}
-              className="flex-1 text-xs rounded-lg px-2 py-1.5 text-white font-medium"
-              style={{ backgroundColor: "#2A1A12" }}
-              onMouseOver={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#3E2A1C"; }}
-              onMouseOut={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "#2A1A12"; }}
-              aria-label="I want this"
-              title="I want this / ይሄን እፈልጋለሁ"
+              className="flex-1 text-xs rounded-lg px-2 py-2.5 text-white font-medium bg-brand-espresso hover:bg-brand-coffee focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-amber transition-colors"
+              aria-label="Reserve"
+              title="Reserve / ይያዙ"
             >
-              {/* Amharic primary — NOTE: owner must verify spelling before launch */}
-              <span lang="am" style={{ fontFamily: "'Noto Sans Ethiopic', 'Abyssinica SIL', 'Nyala', sans-serif", lineHeight: 1.4 }}>
-                ይሄን እፈልጋለሁ
+              {/*
+                Amharic "ይያዙ" = reserve/hold — confirmed by owner (native speaker).
+                Other Amharic strings (hero tagline, section subtitles) still need
+                owner verification.
+              */}
+              <span
+                lang="am"
+                style={{ fontFamily: "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif", lineHeight: 1.4 }}
+              >
+                ይያዙ
               </span>
             </button>
           )}

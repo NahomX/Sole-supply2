@@ -56,6 +56,15 @@ export default async function HomePage() {
 
   const hasAny = shoes.length > 0;
 
+  // The hero "Browse the drop" CTA should anchor to the first NON-EMPTY section
+  // so it never scrolls to blank space when "In stock" happens to be empty.
+  function firstNonEmptySection() {
+    if (inStock.length > 0) return "#in-stock";
+    if (onTheWay.length > 0) return "#on-the-way";
+    if (comingSoon.length > 0) return "#coming-soon";
+    return "#previously";
+  }
+
   function Section({
     title,
     titleAm,
@@ -71,7 +80,8 @@ export default async function HomePage() {
   }) {
     if (items.length === 0) return null;
     return (
-      <section className="mb-16" id={id}>
+      // id + scroll-mt-24 live on the actual <section> element — no phantom div needed.
+      <section className="mb-16 scroll-mt-24" id={id}>
         <div className="flex items-start gap-3 mb-5">
           {/* Amber accent bar — ties sections to the hero palette */}
           <span className="mt-1 w-1.5 h-5 rounded bg-amber-600 flex-shrink-0" />
@@ -79,11 +89,14 @@ export default async function HomePage() {
             <h2 className="text-lg font-semibold text-neutral-800 leading-tight">
               {title}
             </h2>
-            {/* Amharic subtitle — NOTE: must be verified by native speaker */}
+            {/*
+              Amharic subtitle — owner to verify remaining Amharic copy
+              (hero tagline + the four section subtitles) with a native speaker.
+            */}
             <p
               lang="am"
               className="text-sm text-neutral-500 mt-0.5"
-              style={{ fontFamily: "'Noto Sans Ethiopic', 'Abyssinica SIL', 'Nyala', sans-serif", lineHeight: 1.45 }}
+              style={{ fontFamily: "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif", lineHeight: 1.45 }}
             >
               {titleAm}
             </p>
@@ -116,7 +129,11 @@ export default async function HomePage() {
         Layers (back to front):
           1. Brand gradient: espresso → coffee → amber (diagonal)
           2. Radial-dot texture overlay for depth (inline CSS, zero requests)
-          3. Content: bilingual lockup + tagline + browse CTA
+          3. Left-to-right dark scrim — keeps white text legible over the bright
+             amber end of the gradient (without this, text-white/70 fails WCAG AA
+             contrast on the amber side). The scrim fades out rightward so the
+             amber colour still shows on wide screens.
+          4. Content: bilingual lockup + tagline + browse CTA
 
         PLACEHOLDER WARNING: No external image is used here — the CSS-gradient
         hero is the safe default. To add a hero photo, insert a next/image with
@@ -124,9 +141,9 @@ export default async function HomePage() {
         dark scrim, and add images.unsplash.com (or your own domain) to
         next.config.js remotePatterns. Replace with owned photography before launch.
 
-        AMHARIC NOTE: All Amharic strings below are best-effort transliterations
-        and translations. They MUST be reviewed and approved by the owner
-        (a native Amharic speaker) before going live. See PR description.
+        AMHARIC NOTE: Hero tagline and section subtitles are best-effort translations
+        — owner to verify remaining Amharic copy with a native speaker before launch.
+        Brand spelling "በረባሶ" is confirmed correct by the owner.
       */}
       <section
         className="relative overflow-hidden rounded-2xl mb-16"
@@ -147,6 +164,21 @@ export default async function HomePage() {
           }}
         />
 
+        {/*
+          Dark scrim: fades from semi-opaque black on the left (where the text
+          column sits) to transparent on the right. This ensures white copy has
+          enough contrast over the amber terminal stop without killing the amber
+          colour entirely. Contrast checked: text-white/90 over rgba(0,0,0,0.45)
+          blended with #3E2A1C ≈ 7:1, well above AA (4.5:1).
+        */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: "linear-gradient(to right, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.20) 55%, rgba(0,0,0,0) 100%)",
+          }}
+        />
+
         {/* Content */}
         <div className="relative z-10 flex flex-col justify-center h-full px-8 py-12 md:px-14 md:py-16 max-w-2xl">
           {/* Bilingual brand lockup */}
@@ -154,38 +186,34 @@ export default async function HomePage() {
             {/*
               Amharic "በረባሶ" as the dominant hero line for the Addis audience.
               Latin "Berebaso" as a secondary supporting line.
-              The owner must confirm the correct fidel spelling before launch.
+              Brand spelling confirmed correct by the owner (native speaker).
             */}
             <p
               lang="am"
               className="font-bold text-white leading-tight mb-1"
               style={{
                 fontSize: "clamp(2.5rem, 6vw, 4rem)",
-                fontFamily: "'Noto Sans Ethiopic', 'Abyssinica SIL', 'Nyala', sans-serif",
+                fontFamily: "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif",
                 lineHeight: 1.3,
               }}
             >
               በረባሶ
             </p>
-            <p className="text-white/70 text-xl font-semibold tracking-tight">
+            <p className="text-white/90 text-xl font-semibold tracking-tight">
               Berebaso
             </p>
           </div>
 
-          {/* Bilingual tagline */}
+          {/* Bilingual tagline — owner to verify remaining Amharic copy */}
           <div className="mb-8 space-y-1">
-            {/*
-              Amharic primary tagline for Addis audience.
-              English secondary line for clarity / bilingual parity.
-            */}
             <p
               lang="am"
-              className="text-white font-medium text-lg"
-              style={{ fontFamily: "'Noto Sans Ethiopic', 'Abyssinica SIL', 'Nyala', sans-serif", lineHeight: 1.45 }}
+              className="text-white/90 font-medium text-lg"
+              style={{ fontFamily: "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif", lineHeight: 1.45 }}
             >
               ከአሜሪካ የመጡ አዳዲስ ጫማዎች፣ በቀጥታ ወደ አዲስ አበባ
             </p>
-            <p className="text-white/70 text-sm max-w-md">
+            <p className="text-white/90 text-sm max-w-md">
               Fresh sneakers from the US, straight to Addis.{" "}
               {session
                 ? "Tap a shoe you want — we'll reach out when it's in stock."
@@ -193,12 +221,11 @@ export default async function HomePage() {
             </p>
           </div>
 
-          {/* Amber CTA pill — anchors to the in-stock section */}
+          {/* Amber CTA pill — anchors to first non-empty section */}
           {hasAny && (
             <Link
-              href="#in-stock"
-              className="inline-flex self-start items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold text-white"
-              style={{ backgroundColor: "#C8742B" }}
+              href={firstNonEmptySection()}
+              className="inline-flex self-start items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold bg-brand-amber text-white hover:bg-brand-coffee focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white transition-colors"
             >
               Browse the drop
               <svg
@@ -253,11 +280,17 @@ export default async function HomePage() {
         </div>
       )}
 
-      <div className="scroll-mt-24" id="in-stock" />
+      {/*
+        Sections — id + scroll-mt-24 are on the <section> element inside Section{}.
+        The standalone phantom <div id="in-stock" /> has been removed; there was
+        a duplicate id="in-stock" that caused browsers to anchor to the empty div
+        instead of the actual section, potentially scrolling to nothing when
+        "In stock" is empty.
+      */}
       <Section title="Available now" titleAm="አሁን ዝግጁ" items={inStock} id="in-stock" />
-      <Section title="On the way" titleAm="በመንገድ ላይ" items={onTheWay} />
-      <Section title="Coming soon" titleAm="በቅርቡ ይመጣል" items={comingSoon} />
-      <Section title="Previously" titleAm="ቀደም ሲል የነበሩ" items={previously} dim />
+      <Section title="On the way" titleAm="በመንገድ ላይ" items={onTheWay} id="on-the-way" />
+      <Section title="Coming soon" titleAm="በቅርቡ ይመጣል" items={comingSoon} id="coming-soon" />
+      <Section title="Previously" titleAm="ቀደም ሲል የነበሩ" items={previously} id="previously" dim />
     </div>
   );
 }
