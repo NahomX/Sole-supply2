@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Shoe } from "@/lib/supabase";
 import { customerLabel } from "@/lib/labels";
+import { sizeGrid, parseAvailableSizes } from "@/lib/sizes";
 
 type Mode = "idle" | "info" | "request";
 
@@ -137,6 +138,15 @@ export function ShoeCard({
           </div>
         </div>
 
+        {/*
+          Size availability strip — display-only, NOT interactive.
+          Infers availability from shoe.sizes free-text (no schema change).
+          If sizes is absent or produces no parseable US sizes, we show a
+          subtle "Sizes TBA / መጠን በቅርቡ" line instead of an all-sold-out
+          grid (which would be misleading when data is simply missing).
+        */}
+        <SizeStrip sizes={shoe.sizes} />
+
         {mode === "info" && (
           <ul className="text-xs space-y-1.5 border-t border-neutral-100 pt-2">
             {/* Producer site is admin-only — it's the procurement source and
@@ -256,6 +266,127 @@ export function ShoeCard({
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SizeStrip — display-only size availability grid
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders a compact, wrapping row of size chips (US primary, EU secondary).
+ *
+ * Available chips — solid/normal background, legible text.
+ * Unavailable chips — greyed background + line-through text + aria-label "sold out".
+ *
+ * Empty/garbled sizes → "Sizes TBA / መጠን በቅርቡ" instead of all-sold-out grid.
+ *
+ * NOT interactive — do not add click handlers. Reserve/request flow is
+ * handled separately by the mode=request panel above.
+ */
+function SizeStrip({ sizes }: { sizes: string | null }) {
+  // If no parseable sizes, show TBA notice rather than a fully-greyed grid.
+  const hasUsableSizes = parseAvailableSizes(sizes).size > 0;
+
+  if (!hasUsableSizes) {
+    if (!sizes || !sizes.trim()) {
+      // No sizes field at all — silently omit the strip.
+      return null;
+    }
+    // sizes field present but nothing mapped to grid — show TBA.
+    return (
+      <div className="border-t border-neutral-100 pt-2">
+        <p
+          className="text-[10px] text-neutral-400 italic"
+          aria-label="Size availability not yet specified"
+        >
+          Sizes TBA ·{" "}
+          <span
+            lang="am"
+            style={{
+              fontFamily:
+                "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif",
+            }}
+          >
+            መጠን በቅርቡ
+          </span>
+        </p>
+      </div>
+    );
+  }
+
+  const grid = sizeGrid(sizes);
+
+  return (
+    <div className="border-t border-neutral-100 pt-2">
+      {/* Label row — bilingual, subtle */}
+      <p
+        className="text-[9px] uppercase tracking-wider text-neutral-400 mb-1.5 leading-none"
+        aria-hidden="true"
+      >
+        Sizes ·{" "}
+        <span
+          lang="am"
+          style={{
+            fontFamily:
+              "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif",
+          }}
+        >
+          መጠን
+        </span>
+      </p>
+
+      {/*
+        Chip grid — uses flex-wrap so chips reflow on narrow (2-up phone) cards.
+        Compact sizing: text-[11px] + px-1.5 py-0.5 keeps chips tidy while
+        remaining legible; 13 chips across a 160px card wrap to ≤3 rows.
+      */}
+      <div
+        className="flex flex-wrap gap-0.5"
+        role="list"
+        aria-label="Size availability"
+      >
+        {grid.map((entry) => {
+          const label = entry.available
+            ? `US ${entry.us} / EU ${entry.eu}`
+            : `US ${entry.us} / EU ${entry.eu} — sold out`;
+
+          return (
+            <span
+              key={entry.us}
+              role="listitem"
+              title={label}
+              aria-label={label}
+              className={[
+                "inline-flex flex-col items-center leading-none rounded px-1.5 py-0.5",
+                entry.available
+                  ? // Available: warm neutral bg, readable text
+                    "bg-neutral-100 text-neutral-700"
+                  : // Unavailable: greyed bg, muted text, strikethrough
+                    "bg-neutral-50 text-neutral-400",
+              ].join(" ")}
+            >
+              <span
+                className={[
+                  "text-[11px] font-medium",
+                  entry.available ? "" : "line-through",
+                ].join(" ")}
+              >
+                {entry.us}
+              </span>
+              <span
+                className={[
+                  "text-[9px] leading-none mt-px",
+                  entry.available ? "text-neutral-500" : "text-neutral-300",
+                ].join(" ")}
+              >
+                {entry.eu}
+              </span>
+            </span>
+          );
+        })}
       </div>
     </div>
   );

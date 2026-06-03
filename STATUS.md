@@ -1,8 +1,8 @@
 # Sole Supply — STATUS
 
-**Version:** 10
-**Last updated:** 2026-06-02 (pm-sole-supply — PR #13 UX/UI review fixes: webfont, contrast scrim, a11y hover, badge palette, confirmed Amharic)
-**State:** FIVE PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots), #11 PR B (feat/telegram-bots-work), #12 PR C (feat/ops-feed, stacked on PR B), #13 (feat/berebaso-rebrand, stacked on PR C). Merge order: #10 → #11 → #12 → #13; PR #9 can merge independently.
+**Version:** 12
+**Last updated:** 2026-06-02 (pm-sole-supply — PR #15 legibility fix: larger chip text + stronger contrast)
+**State:** SIX PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots), #11 PR B (feat/telegram-bots-work), #12 PR C (feat/ops-feed, stacked on PR B), #13 (feat/berebaso-rebrand, stacked on PR C), #15 (feat/size-availability, branched from main 408823a — independent). Merge order for bots stack: #10 → #11 → #12 → #13; PR #9 and PR #15 can merge independently.
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
 
@@ -125,6 +125,27 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 
 ---
 
+### PR #15 — `feat/size-availability` — Size availability grid on shoe cards
+**URL:** https://github.com/NahomX/Sole-supply2/pull/15
+**Branch:** `feat/size-availability` (branched from `origin/main` at `408823a`)
+**Independent** — not stacked on any other open PR; can merge any time after build review.
+
+**What's in it:**
+- `lib/sizes.ts` (new): canonical Men's US 7–13 ↔ EU size table (EU approximate, noted in code); `parseAvailableSizes(sizesText)` — lenient free-text parser handles comma/space/slash/semicolon/pipe separators, integer ranges ("8-12" → 8…12), explicit half-sizes ("8.5"), "US"/"EU" label stripping, EU-to-US reverse lookup, stray quotes; `sizeGrid(sizesText)` returns full 13-entry `{ us, eu, available }` array.
+- `components/ShoeCard.tsx`: new `SizeStrip` component renders a compact `flex-wrap` chip row below the shoe title. Available chips: `bg-neutral-100 text-neutral-700`. Unavailable chips: `bg-neutral-50 text-neutral-300` + `line-through` on the US text + `aria-label="US X / EU Y — sold out"` + `title` attribute. Bilingual label "Sizes · መጠን" using `--font-ethiopic` var. Empty-state: null/blank `sizes` → strip omitted entirely; text present but nothing maps to US grid → "Sizes TBA / መጠን በቅርቡ". Reserve/request flow is completely unchanged.
+- No schema change. No new env vars. No migration needed.
+
+**Build gate:** `npm ci` + `npm run lint` + `next build` all green (verified in throwaway worktree, commit `3aa4959`). Legibility fix also verified green (commit `7738e7e`).
+
+**Legibility fix (commit `7738e7e`):** SizeStrip chip styling bumped for readability — US `text-[9px]` → `text-[11px]`, EU `text-[8px]` → `text-[9px]`, available EU `text-neutral-400` → `text-neutral-500`, sold-out US container `text-neutral-300` → `text-neutral-400`, sold-out EU `text-neutral-200` → `text-neutral-300`, chip padding `px-1` → `px-1.5`. `flex-wrap gap-0.5` and all aria/label/TBA behavior preserved.
+
+**USER actions before merge:**
+- Visual QA on a real device (phone, 375 px viewport): verify chips wrap cleanly on 2-up card layout and are legibly sized.
+- Functional test: shoe with `sizes = "9, 10, 11"` → chips 9, 10, 11 solid; rest greyed. Shoe with `sizes = "8-12"` → 8–12 solid. Shoe with `sizes = null` → no strip. Shoe with garbled text → TBA notice.
+- Screen reader spot-check: sold-out chip should announce "US X / EU Y — sold out".
+
+---
+
 ### PR #9 — `feat/stale-checker` (M1)
 **URL:** https://github.com/NahomX/Sole-supply2/pull/9
 
@@ -222,6 +243,8 @@ Note: `package-lock.json` + `.eslintrc.json` were generated and committed as par
 
 ## Changelog
 
+- v12 — 2026-06-02 — pm-sole-supply — PR #15 legibility fix (commit 7738e7e). SizeStrip chip styling bumped: US text-[9px]→text-[11px], EU text-[8px]→text-[9px], available EU text-neutral-400→text-neutral-500, sold-out US container text-neutral-300→text-neutral-400, sold-out EU text-neutral-200→text-neutral-300, chip padding px-1→px-1.5. All other SizeStrip behavior (flex-wrap gap-0.5, bilingual label, role/aria, TBA states) preserved. Build gate green (npm ci + lint + next build in throwaway worktree). Pushed to feat/size-availability; PR #15 updated in place. Compare-and-swap v11→v12 (N_start=N_disk=11).
+- v11 — 2026-06-02 — pm-sole-supply — PR #15 (feat/size-availability, branched from main 408823a, commit 3aa4959). New lib/sizes.ts: US 7–13 ↔ EU table + parseAvailableSizes (comma/space/slash/range/EU-token) + sizeGrid. ShoeCard: SizeStrip — compact flex-wrap chips, available=solid, unavailable=greyed+strikethrough+aria; bilingual "Sizes · መጠን" label; null/blank sizes → omit strip; garbled → "Sizes TBA / መጠን በቅርቡ". No schema change, no new env vars. Build gate green. PR #15 open, independent (merges any time). Compare-and-swap v10→v11 (N_start=N_disk=10).
 - v10 — 2026-06-02 — pm-sole-supply — PR #13 UX/UI review fixes committed (fb731ec, feat/berebaso-rebrand). P0: Noto Sans Ethiopic loaded via next/font/google (--font-ethiopic var); ShoeCard onError img fallback; remotePatterns left permissive. P1: hero dark scrim + text-white/90; duplicate id="in-stock" removed, scroll-mt-24 on actual section, hero CTA anchors to first non-empty section. P2: badge palette (gold for "On the way", espresso for "Coming soon"); JS hover → Tailwind brand tokens + focus-visible; py-2.5/items-stretch tap targets; bilingual footer. Owner-confirmed: brand spelling "በረባሶ" locked; CTA changed to ይያዙ (Reserve). Remaining Amharic copy (hero tagline + 4 subtitles) still needs owner verification. Build gate green. PR #13 description updated. Compare-and-swap v9→v10 (N_start=N_disk=9).
 - v9 — 2026-06-02 — pm-sole-supply — PR #13 (feat/berebaso-rebrand, stacked on feat/ops-feed, commit 52685d1). 4 areas: (1) Sole Supply → Berebaso in all display strings (10 files); (2) bilingual EN/Amharic storefront (header lockup, hero, section subtitles, CTA button, Geez font stack); (3) CSS-gradient hero band + brand palette + card hover polish + empty-state card; (4) guardAllowlist shows Telegram ID in denial reply, /whoami added to work bots, README logistics-flow section. Build gate green. Owner must verify all Amharic strings with native speaker before launch. No new env vars. Compare-and-swap v8→v9 (N_start=N_disk=8).
 - v8 — 2026-06-02 — pm-sole-supply — PR #12 reliability fix committed (27e99ec, feat/ops-feed): sendTelegramMessage gets optional timeoutMs param (AbortController, default=no timeout); postOpsFeed passes 3000; all three void postOpsFeed call sites changed to await. Build gate green. PR #12 updated in place.
