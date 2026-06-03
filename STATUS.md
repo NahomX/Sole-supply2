@@ -1,8 +1,8 @@
 # Sole Supply — STATUS
 
-**Version:** 6
-**Last updated:** 2026-06-02 (pm-sole-supply — Both Telegram bot PRs open: PR A #10 + PR B #11)
-**State:** THREE PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots, infra + customer bot), #11 PR B (feat/telegram-bots-work, work bots + ops bot + stale-digest repoint). Merge order: PR A first, then PR B; PR #9 can merge independently.
+**Version:** 7
+**Last updated:** 2026-06-02 (pm-sole-supply — PR #12 ops feed opened, 4 PRs now open)
+**State:** FOUR PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots), #11 PR B (feat/telegram-bots-work), #12 PR C (feat/ops-feed, stacked on PR B). Merge order: #10 → #11 → #12; PR #9 can merge independently.
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
 
@@ -69,6 +69,28 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 
 ---
 
+### PR C (#12) — `feat/ops-feed` — Shared ops feed (stacked on PR B)
+**URL:** https://github.com/NahomX/Sole-supply2/pull/12
+**Branch:** `feat/ops-feed` (branched from `feat/telegram-bots-work`)
+**Merge after:** PR B (#11)
+
+**What's in it:**
+- `lib/shoes.ts`: new `FeedMeta` type + `postOpsFeed` (fire-and-forget) + `buildFeedSuffix` helpers. `setLogisticsStatus`, `setSalesStatus`, and `createShoeFromUrl` each accept an optional `meta?: FeedMeta` param and post to the feed on a real status change. `createShoeFromUrl` posts only when `logistics_status === 'in_cart'`. Duplicate/no-op posts suppressed by comparing current DB value before writing.
+- `app/api/shoes/[id]/route.ts`: migrated from raw Supabase `update()` to calling `setLogisticsStatus` / `setSalesStatus` helpers; passes `{ actorLabel: session.email, source: "web" }`.
+- `app/api/shoes/route.ts`: passes `{ actorLabel: session.email, source: "web" }` meta to `createShoeFromUrl`.
+- `lib/bots/handlers.ts`: new `botMeta(ctx, botName)` helper builds `FeedMeta` from Telegram `@username`/first_name + bot entry name; all bot calls to `createShoeFromUrl`, `setLogisticsStatus`, `setSalesStatus` pass it.
+- `.env.example`: documents `OPS_FEED_CHAT_ID` with step-by-step instructions for creating the group, adding the ops bot, and reading the negative group chat ID from `getUpdates`.
+
+**New env var required:** `OPS_FEED_CHAT_ID` (negative integer; see `.env.example`). Pairs with existing `OPS_BOT_TOKEN`. Feature silently no-ops if either var is unset.
+
+**Build gate:** `npm ci` + `npm run lint` + `next build` all green (verified in throwaway worktree, commit b8795d6).
+
+**Remaining user actions for PR C:**
+- Merge PRs #10, #11 first, then merge #12.
+- Create a private Telegram group (e.g. "Sole Supply Ops"), add the ops bot, send any message, read the chat ID from `getUpdates`, set `OPS_FEED_CHAT_ID` in Vercel. (Details below and in `.env.example`.)
+
+---
+
 ### PR #9 — `feat/stale-checker` (M1)
 **URL:** https://github.com/NahomX/Sole-supply2/pull/9
 
@@ -117,6 +139,22 @@ Once all three vars are set and Cron confirmed, merge PR #9.
 | `DELIVERY_BOT_TOKEN` | Delivery work bot token | @BotFather → /newbot |
 | `OPS_BOT_TOKEN` | Owner ops bot token | @BotFather → /newbot |
 
+### For PR C (#12) — Shared ops feed:
+
+| Variable | What it is | How to get it |
+|---|---|---|
+| `OPS_FEED_CHAT_ID` | Negative integer chat ID of the shared ops Telegram group | Create a private group → add ops bot → send any message → read from `getUpdates` (see steps below) |
+
+**Step-by-step to get `OPS_FEED_CHAT_ID` (USER action — cannot be done by PM):**
+1. In Telegram, create a **private group** (e.g. "Sole Supply Ops"). Add yourself and any admin teammates.
+2. Add the ops bot (the bot you created via @BotFather for `OPS_BOT_TOKEN`) to the group.
+3. Send any message in the group (e.g. "test").
+4. Open in a browser: `https://api.telegram.org/bot<OPS_BOT_TOKEN>/getUpdates`
+5. Look for `"chat":{"id":-XXXXXXXXXX,"type":"group"}` — the **negative number** is the group chat ID.
+6. Set `OPS_FEED_CHAT_ID=-XXXXXXXXXX` in Vercel Dashboard → Project → Settings → Environment Variables.
+
+Note: group chat IDs are negative integers. Supergroup IDs begin with `-100`. If `getUpdates` is empty, send another message to the group first.
+
 ### For PR #9 (stale-digest cron):
 
 | Variable | What it is | How to get it |
@@ -150,6 +188,7 @@ Note: `package-lock.json` + `.eslintrc.json` were generated and committed as par
 
 ## Changelog
 
+- v7 — 2026-06-02 — pm-sole-supply — PR C (#12) ops feed opened (feat/ops-feed, stacked on feat/telegram-bots-work). Files: lib/shoes.ts (FeedMeta, postOpsFeed, meta param on all 3 transition fns), app/api/shoes/[id]/route.ts (migrated to shared helpers + web actor), app/api/shoes/route.ts (+meta), lib/bots/handlers.ts (botMeta helper + 4 call sites), .env.example (OPS_FEED_CHAT_ID docs). Build gate green (commit b8795d6). 4 PRs now open. Compare-and-swap v6→v7 (N_start=N_disk=6).
 - v6 — 2026-06-02 — pm-sole-supply — PR B pushed (#11, feat/telegram-bots-work). Files: scripts/set-webhooks.mjs, lib/staleness.ts, app/api/cron/stale-digest/route.ts (ops-bot repoint), vercel.json. Build gate green. PR A #10 URL updated. STATUS describes 3 open PRs and merge order. Compare-and-swap v5→v6 (N_start=N_disk=5).
 - v5 — 2026-06-02 — pm-sole-supply — Telegram bots PR A pushed. New branch feat/telegram-bots (from origin/main bd47541). Files: lib/shoes.ts (extracted logic), lib/telegram.ts, lib/bots/registry.ts, lib/bots/auth.ts, lib/bots/handlers.ts, app/api/telegram/[bot]/route.ts, supabase/migrations/0004_telegram_users.sql. Updated: app/api/shoes/route.ts, app/api/shoes/[id]/route.ts, package.json (+grammy), package-lock.json, .env.example. Build gate green. PR A opened at #10. 0004 migration SQL must be run by user. 6 BotFather tokens + webhook registration are user actions. Compare-and-swap v4→v5 (N_start=N_disk=4).
 - v4 — 2026-06-02 — pm-sole-supply — Doc-reconcile only. PR #8 (feat/logistics-in-cart-and-ui) marked MERGED (bd47541, 2026-06-01 17:35 UTC). Migration 0003_logistics_in_cart.sql confirmed run in Supabase by user (2026-06-02), no orphaned dispatched rows — M2 fully live. PR #9 (feat/stale-checker) remains open; blocker updated to: Telegram vars (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID) not yet set in Vercel, plus CRON_SECRET and Vercel plan Cron confirmation. No code changes. Compare-and-swap v3→v4 (N_start=N_disk=3).
