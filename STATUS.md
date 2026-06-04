@@ -1,8 +1,8 @@
 # Sole Supply — STATUS
 
-**Version:** 8
-**Last updated:** 2026-06-02 (pm-sole-supply — PR #12 reliability fix: await+timeout on ops feed)
-**State:** FOUR PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots), #11 PR B (feat/telegram-bots-work), #12 PR C (feat/ops-feed, stacked on PR B). Merge order: #10 → #11 → #12; PR #9 can merge independently.
+**Version:** 10
+**Last updated:** 2026-06-02 (pm-sole-supply — PR #13 UX/UI review fixes: webfont, contrast scrim, a11y hover, badge palette, confirmed Amharic)
+**State:** FIVE PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots), #11 PR B (feat/telegram-bots-work), #12 PR C (feat/ops-feed, stacked on PR B), #13 (feat/berebaso-rebrand, stacked on PR C). Merge order: #10 → #11 → #12 → #13; PR #9 can merge independently.
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
 
@@ -88,6 +88,40 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 **Remaining user actions for PR C:**
 - Merge PRs #10, #11 first, then merge #12.
 - Create a private Telegram group (e.g. "Sole Supply Ops"), add the ops bot, send any message, read the chat ID from `getUpdates`, set `OPS_FEED_CHAT_ID` in Vercel. (Details below and in `.env.example`.)
+
+---
+
+### PR #13 — `feat/berebaso-rebrand` — Rebrand + bilingual UI + visual hero + bot onboarding (stacked on PR C)
+**URL:** https://github.com/NahomX/Sole-supply2/pull/13
+**Branch:** `feat/berebaso-rebrand` (branched from `feat/ops-feed`)
+**Merge after:** PR C (#12)
+
+**What's in it:**
+- **Area 1 — Rename Sole Supply → Berebaso**: `README.md` title, `package.json` name, `app/layout.tsx` (HTML title/header/footer), `app/page.tsx` hero, `lib/bots/handlers.ts` (customer + ops bot welcome messages), `app/api/cron/stale-digest/route.ts` digest prefix, `.env.example` comments. GitHub repo/dir/tables/identifiers unchanged.
+- **Area 2 — Bilingual EN/Amharic storefront**: Bilingual header logo lockup (Latin + Amharic "በረባሶ"). Hero bilingual lockup (Amharic dominant). Section headings with Amharic subtitles (`አሁን ዝግጁ`, `በመንገድ ላይ`, `በቅርቡ ይመጣል`, `ቀደም ሲል የነበሩ`). "I want this" CTA → Amharic `ይሄን እፈልጋለሁ`. Noto Sans Ethiopic / Abyssinica SIL / Nyala font stack on all Amharic nodes + in `tailwind.config.ts`. `lang="am"` attributes. Line-height 1.4–1.45 for Geez glyphs.
+- **Area 3 — Visual hero + Tailwind polish**: CSS-gradient hero band (espresso→coffee→amber, `rounded-2xl`, radial-dot texture, zero external image/CLS). Brand palette in tailwind.config.ts (`brand.espresso/coffee/amber/green/gold`). Section amber accent bar. `ShoeCard.tsx`: `rounded-xl`, `shadow-sm`, hover lift + image zoom (GPU-only transforms). Empty-state card with inline SVG sneaker icon. Spacing rhythm upgrade. "In stock" badge → brand green #1F7A52.
+- **Area 4 — Bot onboarding**: `guardAllowlist` now includes user's Telegram ID in the denial reply. `/whoami` added to all work bots (purchaser/arrived/delivery). `README.md` gets "Logistics flow" section documenting the bot pipeline.
+
+**Build gate:** `npm ci` + `npm run lint` + `next build` all green (verified in-directory, commits `52685d1` and `fb731ec`).
+
+**CONFIRMED by owner (native speaker) — no action needed:**
+- Brand spelling "በረባሶ" is correct — alternatives removed from code comments.
+- CTA Amharic changed from `ይሄን እፈልጋለሁ` to `ይያዙ` ("reserve/hold"); `aria-label` + `title` updated to "Reserve".
+
+**USER must verify before launch:**
+- Remaining Amharic copy still needs native-speaker review: hero tagline `ከአሜሪካ የመጡ አዳዲስ ጫማዎች፣ በቀጥታ ወደ አዲስ አበባ` and the four section subtitles (`አሁን ዝግጁ`, `በመንገድ ላይ`, `በቅርቡ ይመጣል`, `ቀደም ሲል የነበሩ`).
+- Test Amharic rendering on iOS and older Android — Noto Sans Ethiopic is now loaded via next/font/google so tofu should not appear, but end-to-end device testing is needed.
+- No new env vars required.
+
+**UX/UI review fixes applied (commit fb731ec):**
+- P0 Noto Sans Ethiopic webfont loaded via next/font/google (--font-ethiopic CSS var); all Amharic fontFamily inline styles updated to var(--font-ethiopic).
+- P0 ShoeCard onError fallback — dead image URLs show sneaker-SVG empty state. remotePatterns left permissive (hostname: "**") — arbitrary retailer hosts are by design.
+- P1 Hero dark scrim (rgba 0,0,0 0.45→0) behind text column; supporting text bumped to text-white/90.
+- P1 Duplicate id="in-stock" removed (standalone phantom div gone); scroll-mt-24 on actual <section>; hero CTA anchors to first non-empty section.
+- P2 Badge palette: "On the way" → gold #E8B53A + dark text; "Coming soon" → espresso #2A1A12. Palette closed.
+- P2 JS onMouseOver/onMouseOut hover replaced with Tailwind bg-brand-espresso hover:bg-brand-coffee + focus-visible outline. Keyboard a11y regression fixed.
+- P2 Action buttons py-2.5 + items-stretch → ~44px tap targets + equal height.
+- P2 Footer bilingual: "Berebaso በረባሶ · Addis Ababa, Ethiopia".
 
 ---
 
@@ -188,6 +222,8 @@ Note: `package-lock.json` + `.eslintrc.json` were generated and committed as par
 
 ## Changelog
 
+- v10 — 2026-06-02 — pm-sole-supply — PR #13 UX/UI review fixes committed (fb731ec, feat/berebaso-rebrand). P0: Noto Sans Ethiopic loaded via next/font/google (--font-ethiopic var); ShoeCard onError img fallback; remotePatterns left permissive. P1: hero dark scrim + text-white/90; duplicate id="in-stock" removed, scroll-mt-24 on actual section, hero CTA anchors to first non-empty section. P2: badge palette (gold for "On the way", espresso for "Coming soon"); JS hover → Tailwind brand tokens + focus-visible; py-2.5/items-stretch tap targets; bilingual footer. Owner-confirmed: brand spelling "በረባሶ" locked; CTA changed to ይያዙ (Reserve). Remaining Amharic copy (hero tagline + 4 subtitles) still needs owner verification. Build gate green. PR #13 description updated. Compare-and-swap v9→v10 (N_start=N_disk=9).
+- v9 — 2026-06-02 — pm-sole-supply — PR #13 (feat/berebaso-rebrand, stacked on feat/ops-feed, commit 52685d1). 4 areas: (1) Sole Supply → Berebaso in all display strings (10 files); (2) bilingual EN/Amharic storefront (header lockup, hero, section subtitles, CTA button, Geez font stack); (3) CSS-gradient hero band + brand palette + card hover polish + empty-state card; (4) guardAllowlist shows Telegram ID in denial reply, /whoami added to work bots, README logistics-flow section. Build gate green. Owner must verify all Amharic strings with native speaker before launch. No new env vars. Compare-and-swap v8→v9 (N_start=N_disk=8).
 - v8 — 2026-06-02 — pm-sole-supply — PR #12 reliability fix committed (27e99ec, feat/ops-feed): sendTelegramMessage gets optional timeoutMs param (AbortController, default=no timeout); postOpsFeed passes 3000; all three void postOpsFeed call sites changed to await. Build gate green. PR #12 updated in place.
 - v7 — 2026-06-02 — pm-sole-supply — PR C (#12) ops feed opened (feat/ops-feed, stacked on feat/telegram-bots-work). Files: lib/shoes.ts (FeedMeta, postOpsFeed, meta param on all 3 transition fns), app/api/shoes/[id]/route.ts (migrated to shared helpers + web actor), app/api/shoes/route.ts (+meta), lib/bots/handlers.ts (botMeta helper + 4 call sites), .env.example (OPS_FEED_CHAT_ID docs). Build gate green (commit b8795d6). 4 PRs now open. Compare-and-swap v6→v7 (N_start=N_disk=6).
 - v6 — 2026-06-02 — pm-sole-supply — PR B pushed (#11, feat/telegram-bots-work). Files: scripts/set-webhooks.mjs, lib/staleness.ts, app/api/cron/stale-digest/route.ts (ops-bot repoint), vercel.json. Build gate green. PR A #10 URL updated. STATUS describes 3 open PRs and merge order. Compare-and-swap v5→v6 (N_start=N_disk=5).

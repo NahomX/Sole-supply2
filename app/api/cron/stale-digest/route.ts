@@ -93,7 +93,7 @@ export async function GET(req: NextRequest) {
   });
 
   const text =
-    `[Sole Supply] ${stale.length} shoe${stale.length === 1 ? "" : "s"} need attention (upcoming + no logistics activity, >7 days old):\n\n` +
+    `[Berebaso] ${stale.length} shoe${stale.length === 1 ? "" : "s"} need attention (upcoming + no logistics activity, >7 days old):\n\n` +
     lines.join("\n");
 
   const ok = await sendTelegramMessage(botToken, chatId, text);
