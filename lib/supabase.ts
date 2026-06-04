@@ -73,6 +73,23 @@ export type ShoeEvent = {
   created_at: string;
 };
 
+export type PaymentStatus = "pending" | "paid" | "failed";
+
+/** One row in the payments table (admin-only, service-role access). */
+export type Payment = {
+  id: string;
+  shoe_id: string | null;
+  size: string | null;
+  amount: number;
+  currency: string;
+  tx_ref: string;
+  status: PaymentStatus;
+  chapa_ref: string | null;
+  customer_email: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 // Browser client — used from client components.
 let browser: SupabaseClient | null = null;
 export function supabaseBrowser(): SupabaseClient {

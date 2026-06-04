@@ -10,6 +10,7 @@ import type {
   Role,
   LogisticsStatus,
   ShoeEvent,
+  Payment,
 } from "@/lib/supabase";
 import { SIZE_GRID } from "@/lib/sizes";
 
@@ -33,7 +34,7 @@ const LOGISTICS: LogisticsStatus[] = [
   "delivered",
 ];
 
-type Tab = "shoes" | "users" | "interests";
+type Tab = "shoes" | "users" | "interests" | "payments";
 
 export function AdminDashboard({
   me,
@@ -44,6 +45,8 @@ export function AdminDashboard({
   eventsByShoe = {},
   staleShoeIds = [],
   staleAgeDaysById = {},
+  recentPayments,
+  paymentsEnabled,
 }: {
   me: string;
   role: Role;
@@ -55,6 +58,8 @@ export function AdminDashboard({
   staleShoeIds?: string[];
   /** Days-old for each stale shoe ID */
   staleAgeDaysById?: Record<string, number>;
+  recentPayments?: Payment[];
+  paymentsEnabled?: boolean;
 }) {
   const router = useRouter();
   const isAdmin = role === "admin";
@@ -150,6 +155,41 @@ export function AdminDashboard({
     });
   }
 
+  // Payment test form state (admin only, paymentsEnabled only)
+  const [payShoeId, setPayShoeId] = useState<string>("");
+  const [paySize, setPaySize] = useState<string>("");
+  const [payAmount, setPayAmount] = useState<string>("500");
+  const [payEmail, setPayEmail] = useState<string>(me);
+  const [payMsg, setPayMsg] = useState<string | null>(null);
+  const [payLoading, setPayLoading] = useState(false);
+
+  async function startTestPayment() {
+    setPayMsg(null);
+    setPayLoading(true);
+    try {
+      const res = await fetch("/api/admin/test-payment", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          shoe_id: payShoeId || undefined,
+          size: paySize || undefined,
+          amount: parseFloat(payAmount),
+          email: payEmail,
+        }),
+      });
+      const j = await res.json().catch(() => ({})) as { checkout_url?: string; error?: string };
+      if (!res.ok) {
+        setPayMsg(j.error ?? "Request failed.");
+      } else if (j.checkout_url) {
+        window.open(j.checkout_url, "_blank", "noopener,noreferrer");
+        setPayMsg("Chapa checkout opened in a new tab.");
+        router.refresh();
+      }
+    } finally {
+      setPayLoading(false);
+    }
+  }
+
   // Tabs available depend on role. Shippers see only the shoes list (to set
   // per-size logistics status). Admins see everything.
   const tabs: Array<[Tab, string]> = isAdmin
@@ -157,6 +197,7 @@ export function AdminDashboard({
         ["shoes", "Shoes"],
         ["users", "Users"],
         ["interests", "Interests"],
+        ...(paymentsEnabled ? ([["payments", "Payments (test)"]] as Array<[Tab, string]>) : []),
       ]
     : [["shoes", "Shoes"]];
 
@@ -480,6 +521,138 @@ export function AdminDashboard({
               No one has expressed interest yet.
             </div>
           )}
+        </div>
+      )}
+
+      {tab === "payments" && isAdmin && paymentsEnabled && (
+        <div className="space-y-6">
+          {/* Test payment form */}
+          <div className="border border-neutral-200 rounded p-4">
+            <h2 className="text-sm font-medium mb-1">Initiate test payment</h2>
+            <p className="text-xs text-neutral-500 mb-3">
+              Admin-only POC. Opens Chapa&apos;s hosted test checkout (Telebirr / CBE / local
+              cards). No real money is moved in test mode.
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div>
+                <label className="text-xs text-neutral-600 block mb-1">
+                  Shoe (optional)
+                </label>
+                <select
+                  value={payShoeId}
+                  onChange={(e) => setPayShoeId(e.target.value)}
+                  className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
+                >
+                  <option value="">— no specific shoe —</option>
+                  {shoes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-neutral-600 block mb-1">
+                  Size (optional)
+                </label>
+                <input
+                  type="text"
+                  value={paySize}
+                  onChange={(e) => setPaySize(e.target.value)}
+                  placeholder="e.g. 10"
+                  className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-neutral-600 block mb-1">
+                  Amount (ETB)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(e.target.value)}
+                  className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-neutral-600 block mb-1">
+                  Test email
+                </label>
+                <input
+                  type="email"
+                  value={payEmail}
+                  onChange={(e) => setPayEmail(e.target.value)}
+                  className="w-full border border-neutral-300 rounded px-2 py-1.5 text-sm"
+                />
+              </div>
+            </div>
+            <div className="mt-3 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={startTestPayment}
+                disabled={payLoading || !payAmount || !payEmail}
+                className="px-4 py-2 rounded bg-black text-white text-sm disabled:opacity-50"
+              >
+                {payLoading ? "Initializing..." : "Open Chapa checkout"}
+              </button>
+              {payMsg && (
+                <span className="text-xs text-neutral-600">{payMsg}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Recent payments list */}
+          <div>
+            <h2 className="text-sm font-medium mb-3">Recent payments (last 20)</h2>
+            {(recentPayments ?? []).length === 0 ? (
+              <div className="text-sm text-neutral-500">No payments yet.</div>
+            ) : (
+              <div className="overflow-x-auto border border-neutral-200 rounded">
+                <table className="w-full text-sm">
+                  <thead className="bg-neutral-50 text-left text-neutral-600">
+                    <tr>
+                      <th className="p-2">tx_ref</th>
+                      <th className="p-2">Status</th>
+                      <th className="p-2">Amount</th>
+                      <th className="p-2">Email</th>
+                      <th className="p-2">Size</th>
+                      <th className="p-2">Created</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(recentPayments ?? []).map((p) => (
+                      <tr key={p.id} className="border-t border-neutral-200">
+                        <td className="p-2 font-mono text-xs">{p.tx_ref}</td>
+                        <td className="p-2">
+                          <span
+                            className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${
+                              p.status === "paid"
+                                ? "bg-[#1F7A52] text-white"
+                                : p.status === "failed"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-neutral-100 text-neutral-600"
+                            }`}
+                          >
+                            {p.status}
+                          </span>
+                        </td>
+                        <td className="p-2">
+                          {p.amount} {p.currency}
+                        </td>
+                        <td className="p-2">{p.customer_email ?? "—"}</td>
+                        <td className="p-2">{p.size ?? "—"}</td>
+                        <td className="p-2 text-neutral-500">
+                          {new Date(p.created_at).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

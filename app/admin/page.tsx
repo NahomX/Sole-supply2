@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionInfo } from "@/lib/auth";
-import { supabaseService, type Shoe, type Profile, type ShoeEvent } from "@/lib/supabase";
+import { supabaseService, type Shoe, type Profile, type ShoeEvent, type Payment } from "@/lib/supabase";
 import { AdminDashboard } from "./AdminDashboard";
 import { isStale, staleAgeDays } from "@/lib/staleness";
 
@@ -47,6 +47,8 @@ export default async function AdminPage() {
   // Uses supabaseService (service-role) — bypasses RLS (no policies on shoe_events).
   // Limit 50 per shoe to cap payload; index on (shoe_id, created_at desc) covers this.
   let eventsByShoe: Record<string, ShoeEvent[]> = {};
+  let recentPayments: Payment[] = [];
+  const paymentsEnabled = process.env.PAYMENTS_POC_ENABLED === "true";
 
   if (isAdmin) {
     const shoeIds = shoes.map((s) => s.id);
@@ -76,6 +78,15 @@ export default async function AdminPage() {
       eventsMap.set(ev.shoe_id, arr);
     }
     eventsByShoe = Object.fromEntries(eventsMap);
+
+    if (paymentsEnabled) {
+      const paymentsQ = await db
+        .from("payments")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      recentPayments = (paymentsQ.data as Payment[]) ?? [];
+    }
   }
 
   const profileById = new Map(profiles.map((p) => [p.id, p]));
@@ -114,6 +125,8 @@ export default async function AdminPage() {
       eventsByShoe={eventsByShoe}
       staleShoeIds={staleShoeIds}
       staleAgeDaysById={staleAgeDaysById}
+      recentPayments={recentPayments}
+      paymentsEnabled={paymentsEnabled}
     />
   );
 }
