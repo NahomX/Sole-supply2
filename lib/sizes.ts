@@ -1,12 +1,18 @@
 /**
  * lib/sizes.ts — Size availability utilities for the Berebaso storefront.
  *
- * Single source of truth for the men's US↔EU size grid and the logic that
- * infers per-size availability from each shoe's free-text `sizes` field.
+ * Single source of truth for the men's US↔EU size grid.
+ *
+ * Phase 1: sizeGrid() is overloaded — it accepts either:
+ *   (a) ShoeSize[] from the DB (authoritative, used by storefront + admin), or
+ *   (b) a free-text string (legacy; kept for syncSizesFromText + backfill).
  *
  * EU sizes are approximate and vary by brand — this table is the best-effort
  * standard conversion used for display purposes only.
  */
+
+import type { ShoeSize, LogisticsStatus } from "@/lib/supabase";
+import type { SizeCustomerState } from "@/lib/labels";
 
 // ---------------------------------------------------------------------------
 // US ↔ EU conversion table
@@ -50,7 +56,7 @@ const VALID_US = new Set(SIZE_GRID.map((e) => e.us));
 const EU_TO_US = new Map(SIZE_GRID.map((e) => [e.eu, e.us]));
 
 // ---------------------------------------------------------------------------
-// Parsing helpers
+// Parsing helpers (used by backfill SQL logic mirror + syncSizesFromText)
 // ---------------------------------------------------------------------------
 
 /**
@@ -162,22 +168,76 @@ export function parseAvailableSizes(sizesText: string | null): Set<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Public grid builder
+// Grid builders
 // ---------------------------------------------------------------------------
 
+/**
+ * Per-size grid entry with a derived customer state.
+ * Used by the storefront (SizeStrip) when shoe_sizes data is available.
+ */
 export type SizeGridEntry = {
   us: string;
   eu: string;
+  /** Present when built from shoe_sizes rows. */
+  customerState?: SizeCustomerState;
+  /** True when the size exists in shoe_sizes. False = not listed. */
   available: boolean;
+  /** The raw logistics status from shoe_sizes (null = not started / not listed). */
+  logistics_status?: LogisticsStatus | null;
 };
 
 /**
- * Returns the full men's US 7–13 grid with availability flags derived from
- * the shoe's free-text `sizes` field.
+ * Derive customer-visible state from a logistics status.
+ * Mirrors sizeLabel() from lib/labels.ts but returns just the state string
+ * so sizes.ts doesn't need to import labels.ts (avoids circular dep).
+ */
+function logisticsToCustomerState(
+  ls: LogisticsStatus | null
+): SizeCustomerState {
+  if (ls === "arrived") return "in-stock";
+  if (ls === "purchased") return "on-the-way";
+  if (ls === "delivered") return "sold-out";
+  return "coming-soon"; // in_cart or null
+}
+
+/**
+ * Build the full size grid from shoe_sizes DB rows (authoritative, Phase 1+).
+ *
+ * - Sizes that exist in shoe_sizes → available=true with their logistics state.
+ * - Sizes absent from shoe_sizes → available=false, customerState=sold-out.
+ *   (absent = was never listed, so effectively sold out / not offered)
+ *
+ * If `shoeSizes` is empty, caller should omit the strip or show "Sizes TBA".
+ */
+export function sizeGridFromSizes(shoeSizes: ShoeSize[]): SizeGridEntry[] {
+  const byUs = new Map(shoeSizes.map((sz) => [sz.us_size, sz]));
+  return SIZE_GRID.map((e) => {
+    const row = byUs.get(e.us);
+    if (!row) {
+      return {
+        us: e.us,
+        eu: e.eu,
+        available: false,
+        customerState: "sold-out" as SizeCustomerState,
+        logistics_status: null,
+      };
+    }
+    return {
+      us: e.us,
+      eu: e.eu,
+      available: true,
+      customerState: logisticsToCustomerState(row.logistics_status),
+      logistics_status: row.logistics_status,
+    };
+  });
+}
+
+/**
+ * Legacy grid builder from free-text — kept for any callers that don't yet
+ * have shoe_sizes rows (e.g. newly submitted shoes before admin adds sizes).
  *
  * If parsing yields zero usable sizes (null/blank/garbled input), the caller
- * should omit the grid rather than show an all-sold-out display (which would
- * be misleading — it just means sizes aren't specified yet).
+ * should omit the grid rather than show an all-sold-out display (misleading).
  */
 export function sizeGrid(sizesText: string | null): SizeGridEntry[] {
   const available = parseAvailableSizes(sizesText);
@@ -185,5 +245,8 @@ export function sizeGrid(sizesText: string | null): SizeGridEntry[] {
     us: e.us,
     eu: e.eu,
     available: available.has(e.us),
+    customerState: available.has(e.us)
+      ? ("coming-soon" as SizeCustomerState)
+      : ("sold-out" as SizeCustomerState),
   }));
 }

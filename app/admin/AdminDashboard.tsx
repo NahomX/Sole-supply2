@@ -4,11 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type {
   Shoe,
+  ShoeSize,
   ShoeStatus,
   Profile,
   Role,
   LogisticsStatus,
 } from "@/lib/supabase";
+import { SIZE_GRID } from "@/lib/sizes";
 
 type InterestWithEmail = {
   id: string;
@@ -22,6 +24,7 @@ type InterestWithEmail = {
 
 const STATUSES: ShoeStatus[] = ["upcoming", "available", "sold"];
 const ROLES: Role[] = ["customer", "submitter", "shipper", "admin"];
+// LOGISTICS kept for per-size dropdowns — must stay in sync with the four places.
 const LOGISTICS: LogisticsStatus[] = [
   "in_cart",
   "purchased",
@@ -79,11 +82,11 @@ export function AdminDashboard({
     await call(`/api/shoes/${id}`, { method: "DELETE" });
   }
 
-  async function updateRole(id: string, role: Role) {
+  async function updateRole(id: string, r: Role) {
     await call(`/api/profiles/${id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ role }),
+      body: JSON.stringify({ role: r }),
     });
   }
 
@@ -100,8 +103,38 @@ export function AdminDashboard({
     setInviteEmail("");
   }
 
-  // Tabs available depend on role. Shippers see only the shoes list (so
-  // they can flip logistics statuses); admins see everything.
+  // Per-size status update: PATCH /api/shoes/:id/sizes
+  async function setSizeStatus(
+    shoeId: string,
+    usSize: string,
+    newStatus: LogisticsStatus | null
+  ) {
+    await call(`/api/shoes/${shoeId}/sizes`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ us_size: usSize, logistics_status: newStatus }),
+    });
+  }
+
+  // Add a size to a shoe: POST /api/shoes/:id/sizes (admin only)
+  async function addSizeToShoe(shoeId: string, usSize: string) {
+    await call(`/api/shoes/${shoeId}/sizes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ us_size: usSize }),
+    });
+  }
+
+  // Remove a size: DELETE /api/shoes/:id/sizes?us_size=X (admin only)
+  async function removeSizeFromShoe(shoeId: string, usSize: string) {
+    if (!confirm(`Remove US ${usSize} from this shoe?`)) return;
+    await call(`/api/shoes/${shoeId}/sizes?us_size=${encodeURIComponent(usSize)}`, {
+      method: "DELETE",
+    });
+  }
+
+  // Tabs available depend on role. Shippers see only the shoes list (to set
+  // per-size logistics status). Admins see everything.
   const tabs: Array<[Tab, string]> = isAdmin
     ? [
         ["shoes", "Shoes"],
@@ -141,127 +174,26 @@ export function AdminDashboard({
       {msg && <div className="mb-4 text-sm text-red-600">{msg}</div>}
 
       {tab === "shoes" && (
-        <div className="overflow-x-auto border border-neutral-200 rounded">
-          <table className="w-full text-sm">
-            <thead className="bg-neutral-50 text-left text-neutral-600">
-              <tr>
-                <th className="p-2">Image</th>
-                <th className="p-2">Title</th>
-                <th className="p-2">Brand</th>
-                {isAdmin && <th className="p-2">Sizes</th>}
-                {isAdmin && <th className="p-2">Interest</th>}
-                {isAdmin && <th className="p-2">Status</th>}
-                <th className="p-2">Logistics</th>
-                {isAdmin && <th className="p-2"></th>}
-              </tr>
-            </thead>
-            <tbody>
-              {shoes.map((s) => (
-                <tr key={s.id} className="border-t border-neutral-200 align-top">
-                  <td className="p-2">
-                    {s.image_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={s.image_url}
-                        alt=""
-                        className="w-14 h-14 object-cover rounded bg-neutral-100"
-                      />
-                    ) : (
-                      <div className="w-14 h-14 rounded bg-neutral-100" />
-                    )}
-                  </td>
-                  <td className="p-2 max-w-xs">
-                    {isAdmin ? (
-                      <a
-                        href={s.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline"
-                      >
-                        {s.title}
-                      </a>
-                    ) : (
-                      <span>{s.title}</span>
-                    )}
-                    {s.notes && (
-                      <div className="text-xs text-neutral-500 mt-1">
-                        {s.notes}
-                      </div>
-                    )}
-                  </td>
-                  <td className="p-2">{s.brand ?? "—"}</td>
-                  {isAdmin && <td className="p-2">{s.sizes ?? "—"}</td>}
-                  {isAdmin && (
-                    <td className="p-2">
-                      {(interestsByShoe[s.id]?.length ?? 0) || "—"}
-                    </td>
-                  )}
-                  {isAdmin && (
-                    <td className="p-2">
-                      <select
-                        value={s.status}
-                        onChange={(e) =>
-                          updateShoe(s.id, {
-                            status: e.target.value as ShoeStatus,
-                          })
-                        }
-                        disabled={loading}
-                        className="border border-neutral-300 rounded px-2 py-1 text-sm"
-                      >
-                        {STATUSES.map((st) => (
-                          <option key={st} value={st}>
-                            {st}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                  )}
-                  <td className="p-2">
-                    <select
-                      value={s.logistics_status ?? ""}
-                      onChange={(e) =>
-                        updateShoe(s.id, {
-                          logistics_status:
-                            (e.target.value || null) as LogisticsStatus | null,
-                        })
-                      }
-                      disabled={loading}
-                      className="border border-neutral-300 rounded px-2 py-1 text-sm"
-                    >
-                      <option value="">—</option>
-                      {LOGISTICS.map((st) => (
-                        <option key={st} value={st}>
-                          {st}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  {isAdmin && (
-                    <td className="p-2">
-                      <button
-                        type="button"
-                        onClick={() => deleteShoe(s.id)}
-                        disabled={loading}
-                        className="text-red-600 text-xs hover:underline"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-              {shoes.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={isAdmin ? 8 : 4}
-                    className="p-6 text-center text-neutral-500"
-                  >
-                    No shoes yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="space-y-4">
+          {shoes.map((s) => (
+            <ShoeRow
+              key={s.id}
+              shoe={s}
+              isAdmin={isAdmin}
+              loading={loading}
+              interestCount={interestsByShoe[s.id]?.length ?? 0}
+              onUpdateStatus={(st) => updateShoe(s.id, { status: st })}
+              onSetSizeStatus={(usSize, ls) => setSizeStatus(s.id, usSize, ls)}
+              onAddSize={isAdmin ? (usSize) => addSizeToShoe(s.id, usSize) : undefined}
+              onRemoveSize={isAdmin ? (usSize) => removeSizeFromShoe(s.id, usSize) : undefined}
+              onDelete={isAdmin ? () => deleteShoe(s.id) : undefined}
+            />
+          ))}
+          {shoes.length === 0 && (
+            <div className="border border-neutral-200 rounded p-6 text-center text-neutral-500 text-sm">
+              No shoes yet.
+            </div>
+          )}
         </div>
       )}
 
@@ -411,6 +343,244 @@ export function AdminDashboard({
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ShoeRow — per-shoe card with per-size logistics editor
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders one shoe as a card (replacing the old table row).
+ * The logistics section is now a per-size chip grid, not a single dropdown.
+ *
+ * Shippers: can change the logistics_status of any existing size chip.
+ * Admins: additionally can add/remove sizes from the SIZE_GRID.
+ */
+function ShoeRow({
+  shoe,
+  isAdmin,
+  loading,
+  interestCount,
+  onUpdateStatus,
+  onSetSizeStatus,
+  onAddSize,
+  onRemoveSize,
+  onDelete,
+}: {
+  shoe: Shoe;
+  isAdmin: boolean;
+  loading: boolean;
+  interestCount: number;
+  onUpdateStatus: (st: ShoeStatus) => void;
+  onSetSizeStatus: (usSize: string, ls: LogisticsStatus | null) => void;
+  onAddSize?: (usSize: string) => void;
+  onRemoveSize?: (usSize: string) => void;
+  onDelete?: () => void;
+}) {
+  const sizes: ShoeSize[] = shoe.shoe_sizes ?? [];
+  const sizeByUs = new Map(sizes.map((sz) => [sz.us_size, sz]));
+
+  // Available sizes from SIZE_GRID that aren't yet added to this shoe
+  const addableSizes = SIZE_GRID.map((e) => e.us).filter((us) => !sizeByUs.has(us));
+  const [addValue, setAddValue] = useState<string>(addableSizes[0] ?? "");
+
+  return (
+    <div className="border border-neutral-200 rounded p-4">
+      <div className="flex gap-3 mb-3">
+        {/* Thumbnail */}
+        {shoe.image_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={shoe.image_url}
+            alt=""
+            className="w-16 h-16 object-cover rounded bg-neutral-100 flex-shrink-0"
+          />
+        ) : (
+          <div className="w-16 h-16 rounded bg-neutral-100 flex-shrink-0" />
+        )}
+
+        {/* Title + meta */}
+        <div className="flex-1 min-w-0">
+          {isAdmin ? (
+            <a
+              href={shoe.url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-medium underline truncate block"
+            >
+              {shoe.title}
+            </a>
+          ) : (
+            <div className="text-sm font-medium truncate">{shoe.title}</div>
+          )}
+          {shoe.brand && (
+            <div className="text-[11px] uppercase tracking-wider text-neutral-500 mt-0.5">
+              {shoe.brand}
+            </div>
+          )}
+          {shoe.notes && (
+            <div className="text-xs text-neutral-500 mt-1">{shoe.notes}</div>
+          )}
+          <div className="flex flex-wrap gap-3 mt-2 items-center">
+            {/* Sales status — admin only */}
+            {isAdmin && (
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-neutral-500">Sales:</span>
+                <select
+                  value={shoe.status}
+                  onChange={(e) => onUpdateStatus(e.target.value as ShoeStatus)}
+                  disabled={loading}
+                  className="border border-neutral-300 rounded px-1.5 py-0.5 text-xs"
+                >
+                  {STATUSES.map((st) => (
+                    <option key={st} value={st}>
+                      {st}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {isAdmin && (
+              <div className="text-xs text-neutral-500">
+                {interestCount > 0 ? `${interestCount} interested` : ""}
+              </div>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={loading}
+                className="ml-auto text-xs text-red-600 hover:underline"
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Per-size logistics editor */}
+      <div className="border-t border-neutral-100 pt-3">
+        <div className="text-[11px] uppercase tracking-wider text-neutral-500 mb-2">
+          Sizes &amp; logistics
+        </div>
+
+        {sizes.length === 0 && !isAdmin && (
+          <div className="text-xs text-neutral-400 italic">
+            No sizes added yet. Ask an admin to add sizes.
+          </div>
+        )}
+
+        {/* Existing size chips */}
+        <div className="flex flex-wrap gap-2 mb-2">
+          {sizes.map((sz) => (
+            <SizeStatusChip
+              key={sz.us_size}
+              sz={sz}
+              isAdmin={isAdmin}
+              loading={loading}
+              onSetStatus={(ls) => onSetSizeStatus(sz.us_size, ls)}
+              onRemove={onRemoveSize ? () => onRemoveSize(sz.us_size) : undefined}
+            />
+          ))}
+        </div>
+
+        {/* Add a size — admin only */}
+        {isAdmin && onAddSize && addableSizes.length > 0 && (
+          <div className="flex items-center gap-2 mt-2">
+            <select
+              value={addValue}
+              onChange={(e) => setAddValue(e.target.value)}
+              disabled={loading}
+              className="border border-neutral-300 rounded px-2 py-1 text-xs"
+            >
+              {addableSizes.map((us) => (
+                <option key={us} value={us}>
+                  US {us}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                if (addValue) onAddSize(addValue);
+              }}
+              disabled={loading || !addValue}
+              className="text-xs border border-neutral-300 rounded px-2 py-1 hover:bg-neutral-50 disabled:opacity-50"
+            >
+              + Add size
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SizeStatusChip — one chip per shoe_sizes row in the admin editor
+// ---------------------------------------------------------------------------
+
+function SizeStatusChip({
+  sz,
+  isAdmin,
+  loading,
+  onSetStatus,
+  onRemove,
+}: {
+  sz: ShoeSize;
+  isAdmin: boolean;
+  loading: boolean;
+  onSetStatus: (ls: LogisticsStatus | null) => void;
+  onRemove?: () => void;
+}) {
+  // Colour encodes customer-visible state:
+  // arrived → green; purchased → gold; in_cart/null → neutral; delivered → muted
+  const chipColor =
+    sz.logistics_status === "arrived"
+      ? "bg-[#1F7A52] text-white border-[#1F7A52]"
+      : sz.logistics_status === "purchased"
+      ? "bg-[#E8B53A] text-neutral-900 border-[#E8B53A]"
+      : sz.logistics_status === "delivered"
+      ? "bg-neutral-100 text-neutral-400 border-neutral-200"
+      : "bg-white text-neutral-700 border-neutral-300"; // null or in_cart
+
+  return (
+    <div
+      className={`inline-flex flex-col items-center rounded border px-2 py-1 gap-0.5 ${chipColor}`}
+    >
+      <span className="text-xs font-medium">US {sz.us_size}</span>
+      {/* Status selector — shipper + admin */}
+      <select
+        value={sz.logistics_status ?? ""}
+        onChange={(e) =>
+          onSetStatus((e.target.value || null) as LogisticsStatus | null)
+        }
+        disabled={loading}
+        className="text-[10px] border-0 bg-transparent p-0 cursor-pointer focus:outline-none"
+        aria-label={`Logistics status for US ${sz.us_size}`}
+      >
+        <option value="">— none</option>
+        {LOGISTICS.map((ls) => (
+          <option key={ls} value={ls}>
+            {ls}
+          </option>
+        ))}
+      </select>
+      {/* Remove button — admin only */}
+      {isAdmin && onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={loading}
+          className="text-[9px] opacity-60 hover:opacity-100"
+          aria-label={`Remove US ${sz.us_size}`}
+        >
+          remove
+        </button>
       )}
     </div>
   );
