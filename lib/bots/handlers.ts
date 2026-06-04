@@ -12,6 +12,13 @@
  *
  * The customer bot NEVER emits shoe.url (producer-URL redaction boundary).
  * Work bots verify the allowlist via checkAllowlist before every action.
+ *
+ * Phase 1 (INTERIM): work bots use advanceAllSizes(shoeId, toStatus) so they
+ * keep working after shoes.logistics_status is dropped. This is an interim
+ * measure — Phase 2 will replace with per-size drill-down multi-select.
+ *
+ * Ops bot /logistics: kept functional at shoe level (advances all sizes) for
+ * Phase 1. Full per-size manual override via the /admin web UI.
  */
 
 import { Bot, Context, InlineKeyboard } from "grammy";
@@ -22,7 +29,7 @@ import {
   getShoesByLogistics,
   getAllShoes,
   createShoeFromUrl,
-  setLogisticsStatus,
+  advanceAllSizes,
   setSalesStatus,
   STATUSES,
   LOGISTICS,
@@ -52,7 +59,12 @@ function formatShoe(s: Shoe | Omit<Shoe, "url">, includeUrl = false): string {
   if (s.price_usd != null) parts.push(`Price: $${s.price_usd}`);
   if (s.sizes) parts.push(`Sizes: ${escMd(s.sizes)}`);
   if (s.status) parts.push(`Sales: ${escMd(s.status)}`);
-  if (s.logistics_status) parts.push(`Logistics: ${escMd(s.logistics_status)}`);
+  // Phase 1: no per-shoe logistics_status; show per-size summary if available.
+  const szs = s.shoe_sizes;
+  if (szs && szs.length > 0) {
+    const summary = szs.map((sz) => `${sz.us_size}:${sz.logistics_status ?? "—"}`).join(", ");
+    parts.push(`Sizes: ${escMd(summary)}`);
+  }
   if (includeUrl && "url" in s && s.url) parts.push(`URL: ${s.url}`);
   return parts.join("\n");
 }
@@ -149,20 +161,23 @@ export function registerCustomerBot(bot: Bot, _entry: BotEntry) {
 
 // ---------------------------------------------------------------------------
 // In-cart bot — paste a URL to create a shoe with logistics_status = in_cart
+// Phase 1: shoe is created; sizes are added later via the admin per-size editor.
 // ---------------------------------------------------------------------------
 
 export function registerIncartBot(bot: Bot, entry: BotEntry) {
   bot.command("start", async (ctx) => {
     if (!(await guardAllowlist(ctx, entry.name, "shipper"))) return;
     await ctx.reply(
-      "In-cart bot. Paste a product URL to add a shoe to the in-cart queue."
+      "In-cart bot. Paste a product URL to add a shoe to the in-cart queue.\n" +
+      "(Phase 1: add sizes in /admin after creating the shoe.)"
     );
   });
 
   bot.command("help", async (ctx) => {
     if (!(await guardAllowlist(ctx, entry.name, "shipper"))) return;
     await ctx.reply(
-      "Paste any retailer product URL and I will scrape it and create a shoe with logistics_status = in_cart."
+      "Paste any retailer product URL and I will scrape it and create a shoe. " +
+      "Use /admin to add sizes and set their logistics status."
     );
   });
 
@@ -174,6 +189,8 @@ export function registerIncartBot(bot: Bot, entry: BotEntry) {
       return;
     }
     const msg = await ctx.reply("Scraping...");
+    // Pass logistics_status for backward compat — createShoeFromUrl maps it
+    // to initial_logistics_status internally.
     const result = await createShoeFromUrl({
       url: text,
       logistics_status: "in_cart",
@@ -198,6 +215,10 @@ export function registerIncartBot(bot: Bot, entry: BotEntry) {
 
 // ---------------------------------------------------------------------------
 // Generic work-bot factory — covers purchaser, arrived, delivery
+//
+// INTERIM (Phase 1): "tap a shoe → advance ALL its sizes" keeps the bots
+// working after shoes.logistics_status is dropped. Phase 2 replaces this with
+// per-size drill-down multi-select.
 // ---------------------------------------------------------------------------
 
 type WorkBotConfig = {
@@ -211,20 +232,20 @@ const WORK_BOT_CONFIGS: Record<string, WorkBotConfig> = {
   purchaser: {
     fromStatus: "in_cart",
     toStatus: "purchased",
-    listLabel: "Shoes in cart (ready to purchase)",
-    actionLabel: "Mark purchased",
+    listLabel: "Shoes with in-cart sizes (ready to purchase)",
+    actionLabel: "Mark all sizes purchased",
   },
   arrived: {
     fromStatus: "purchased",
     toStatus: "arrived",
     listLabel: "Purchased shoes (awaiting arrival)",
-    actionLabel: "Mark arrived",
+    actionLabel: "Mark all sizes arrived",
   },
   delivery: {
     fromStatus: "arrived",
     toStatus: "delivered",
     listLabel: "Arrived shoes (ready for delivery)",
-    actionLabel: "Mark delivered",
+    actionLabel: "Mark all sizes delivered",
   },
 };
 
@@ -234,13 +255,14 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
 
   async function listAndShow(ctx: Context) {
     if (!(await guardAllowlist(ctx, entry.name, "shipper"))) return;
+    // getShoesByLogistics now returns shoes with ≥1 size at fromStatus.
     const { shoes, error } = await getShoesByLogistics(config.fromStatus);
     if (error) {
       await ctx.reply("Error fetching shoes.");
       return;
     }
     if (shoes.length === 0) {
-      await ctx.reply(`No shoes with status "${config.fromStatus}" right now.`);
+      await ctx.reply(`No shoes with any size at "${config.fromStatus}" right now.`);
       return;
     }
     const kb = new InlineKeyboard();
@@ -250,7 +272,7 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
       if (i % 1 === 0) kb.row(); // one button per row for readability
     });
     await ctx.reply(
-      `${config.listLabel} (${shoes.length})\nTap a shoe to ${config.actionLabel.toLowerCase()}:`,
+      `${config.listLabel} (${shoes.length})\nTap a shoe to ${config.actionLabel.toLowerCase()}:\n\n(Phase 1: all eligible sizes advance together)`,
       { reply_markup: kb }
     );
   }
@@ -276,13 +298,21 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
     }
     await ctx.answerCallbackQuery();
     const shoeId = ctx.match[1];
-    const result = await setLogisticsStatus(shoeId, config.toStatus, botMeta(ctx, entry.name));
+    // INTERIM: advance ALL sizes at fromStatus → toStatus.
+    // Phase 2 will replace with per-size drill-down selection.
+    const result = await advanceAllSizes(shoeId, config.toStatus, botMeta(ctx, entry.name));
     if (result.error) {
       await ctx.reply(`Error: ${result.error}`);
       return;
     }
+    if (result.count === 0) {
+      await ctx.reply(
+        `No sizes were at "${config.fromStatus}" for that shoe. Check /admin for current status.`
+      );
+      return;
+    }
     await ctx.reply(
-      `Done! "${result.shoe!.title}" is now *${escMd(config.toStatus)}*`,
+      `Done! ${result.count} size${result.count === 1 ? "" : "s"} advanced to *${escMd(config.toStatus)}*`,
       { parse_mode: "MarkdownV2" }
     );
   });
@@ -290,6 +320,10 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
 
 // ---------------------------------------------------------------------------
 // Owner ops bot — full control
+//
+// Phase 1 (INTERIM): /logistics shows shoes → tap → advances ALL sizes of that
+// shoe to a chosen status (same "advance all" interim behavior as work bots).
+// Full per-size manual override is available in the /admin web UI.
 // ---------------------------------------------------------------------------
 
 export function registerOpsBot(bot: Bot, entry: BotEntry) {
@@ -300,6 +334,7 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
         "/list — full pipeline overview\n" +
         "/whoami — your Telegram ID\n" +
         "/sales — manage sales status\n" +
+        "/logistics — advance all sizes of a shoe (interim; use /admin for per-size)\n" +
         "/help — this message"
     );
   });
@@ -317,7 +352,7 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
         "/list — full pipeline\n" +
         "/whoami — get your Telegram ID\n" +
         "/sales — change sales status\n" +
-        "/logistics — change logistics status"
+        "/logistics — advance all sizes of a shoe (interim — use /admin for per-size control)"
     );
   });
 
@@ -333,8 +368,12 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
       return;
     }
     const lines = shoes.map((s) => {
-      const log = s.logistics_status ?? "no logistics";
-      return `• [${s.status}/${log}] ${s.title.slice(0, 60)}`;
+      // Show per-size summary: "9:purchased, 10:arrived" or "no sizes"
+      const szs = s.shoe_sizes ?? [];
+      const logSummary = szs.length > 0
+        ? szs.map((sz) => `${sz.us_size}:${sz.logistics_status ?? "—"}`).join(", ")
+        : "no sizes";
+      return `• [${s.status}] ${s.title.slice(0, 50)} — ${logSummary}`;
     });
     await ctx.reply(`Pipeline (${shoes.length} shoes):\n\n` + lines.join("\n"));
   });
@@ -391,7 +430,8 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
     });
   });
 
-  // /logistics — list shoes with inline keyboard to set logistics status
+  // /logistics — INTERIM: pick a shoe → pick a target status → advance all sizes.
+  // Phase 2 will add per-size drill-down here.
   bot.command("logistics", async (ctx) => {
     if (!(await guardAllowlist(ctx, entry.name, "admin"))) return;
     const { shoes, error } = await getAllShoes();
@@ -405,13 +445,17 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
     }
     const kb = new InlineKeyboard();
     shoes.slice(0, 20).forEach((s) => {
-      const log = s.logistics_status ?? "none";
-      const label = `${s.title.slice(0, 35)} [${log}]`;
+      const szs = s.shoe_sizes ?? [];
+      const summary = szs.length > 0
+        ? szs.map((sz) => `${sz.us_size}:${sz.logistics_status ?? "—"}`).join(", ")
+        : "no sizes";
+      const label = `${s.title.slice(0, 30)} [${summary.slice(0, 20)}]`;
       kb.text(label, `ops_log_pick:${s.id}`).row();
     });
-    await ctx.reply("Pick a shoe to change its logistics status:", {
-      reply_markup: kb,
-    });
+    await ctx.reply(
+      "Pick a shoe to advance all its sizes (Phase 1 interim — use /admin for per-size):",
+      { reply_markup: kb }
+    );
   });
 
   bot.callbackQuery(/^ops_log_pick:(.+)$/, async (ctx) => {
@@ -422,10 +466,9 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
     await ctx.answerCallbackQuery();
     const shoeId = ctx.match[1];
     const kb = new InlineKeyboard();
-    // Include a "clear" option and all logistics states
-    kb.text("clear (null)", `ops_log_set:${shoeId}:__null__`).row();
+    // Offer all target statuses (advance-all semantics).
     LOGISTICS.forEach((s) => kb.text(s, `ops_log_set:${shoeId}:${s}`).row());
-    await ctx.reply("Choose new logistics status:", { reply_markup: kb });
+    await ctx.reply("Advance all eligible sizes to:", { reply_markup: kb });
   });
 
   bot.callbackQuery(/^ops_log_set:([^:]+):(.+)$/, async (ctx) => {
@@ -435,16 +478,21 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
     }
     await ctx.answerCallbackQuery();
     const shoeId = ctx.match[1];
-    const raw = ctx.match[2];
-    const newStatus = raw === "__null__" ? null : (raw as LogisticsStatus);
-    const result = await setLogisticsStatus(shoeId, newStatus, botMeta(ctx, entry.name));
+    const toStatus = ctx.match[2] as LogisticsStatus;
+    // INTERIM: advance all eligible sizes (predecessor → toStatus).
+    const result = await advanceAllSizes(shoeId, toStatus, botMeta(ctx, entry.name));
     if (result.error) {
       await ctx.reply(`Error: ${result.error}`);
       return;
     }
-    const label = newStatus ?? "cleared";
+    if (result.count === 0) {
+      await ctx.reply(
+        `No eligible sizes to advance to "${toStatus}". Use /admin to set individual sizes.`
+      );
+      return;
+    }
     await ctx.reply(
-      `Logistics status set to *${escMd(label)}* for "${escMd(result.shoe!.title)}"`,
+      `${result.count} size${result.count === 1 ? "" : "s"} advanced to *${escMd(toStatus)}*`,
       { parse_mode: "MarkdownV2" }
     );
   });

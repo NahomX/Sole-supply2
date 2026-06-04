@@ -19,6 +19,21 @@ export type Shoe = {
   sizes: string | null;
   notes: string | null;
   status: ShoeStatus;
+  // logistics_status has moved to shoe_sizes (per-size). shoes rows no longer
+  // carry this field after migration 0005_shoe_sizes runs. Code that needs
+  // the aggregate logistics picture uses the joined shoe_sizes array instead.
+  created_at: string;
+  /** Populated when the query joins shoe_sizes (e.g. getPublicShoes, getAllShoes). */
+  shoe_sizes?: ShoeSize[];
+};
+
+/** One row in shoe_sizes — one size of a shoe + its logistics status. */
+export type ShoeSize = {
+  id: string;
+  shoe_id: string;
+  /** Canonical US size string from SIZE_GRID, e.g. "9", "10.5". */
+  us_size: string;
+  /** null = listed / not started; non-null = in pipeline. */
   logistics_status: LogisticsStatus | null;
   created_at: string;
 };

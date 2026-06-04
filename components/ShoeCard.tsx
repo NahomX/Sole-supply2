@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Shoe } from "@/lib/supabase";
+import type { Shoe, ShoeSize } from "@/lib/supabase";
 import { customerLabel } from "@/lib/labels";
-import { sizeGrid, parseAvailableSizes } from "@/lib/sizes";
+import { sizeGridFromSizes, parseAvailableSizes } from "@/lib/sizes";
 
 type Mode = "idle" | "info" | "request";
 
@@ -140,12 +140,11 @@ export function ShoeCard({
 
         {/*
           Size availability strip — display-only, NOT interactive.
-          Infers availability from shoe.sizes free-text (no schema change).
-          If sizes is absent or produces no parseable US sizes, we show a
-          subtle "Sizes TBA / መጠን በቅርቡ" line instead of an all-sold-out
-          grid (which would be misleading when data is simply missing).
+          Phase 1: driven by shoe_sizes rows (per-size logistics status).
+          Falls back to free-text parsing if shoe_sizes is absent or empty
+          (pre-migration shoes or shoes not yet given sizes in the editor).
         */}
-        <SizeStrip sizes={shoe.sizes} />
+        <SizeStrip shoeSizes={shoe.shoe_sizes} sizesText={shoe.sizes} />
 
         {mode === "info" && (
           <ul className="text-xs space-y-1.5 border-t border-neutral-100 pt-2">
@@ -242,8 +241,7 @@ export function ShoeCard({
               Reserve CTA — primary brand button.
               Amharic: "ይያዙ" = "reserve / hold" (confirmed by owner).
               Hover state uses Tailwind brand tokens (bg-brand-espresso hover:bg-brand-coffee)
-              so keyboard :focus-visible works correctly — the previous JS onMouseOver/onMouseOut
-              approach bypassed CSS focus styles.
+              so keyboard :focus-visible works correctly.
             */
             <button
               type="button"
@@ -252,11 +250,6 @@ export function ShoeCard({
               aria-label="Reserve"
               title="Reserve / ይያዙ"
             >
-              {/*
-                Amharic "ይያዙ" = reserve/hold — confirmed by owner (native speaker).
-                Other Amharic strings (hero tagline, section subtitles) still need
-                owner verification.
-              */}
               <span
                 lang="am"
                 style={{ fontFamily: "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif", lineHeight: 1.4 }}
@@ -278,20 +271,133 @@ export function ShoeCard({
 /**
  * Renders a compact, wrapping row of size chips (US primary, EU secondary).
  *
- * Available chips — solid/normal background, legible text.
- * Unavailable chips — greyed background + line-through text + aria-label "sold out".
+ * Phase 1: driven by shoe_sizes rows (per-size logistics status).
+ * Each chip reflects the customer state derived from that size's logistics status:
+ *   - in-stock    → solid green chip (arrived)
+ *   - on-the-way  → gold accent chip (purchased)
+ *   - coming-soon → muted neutral chip (in_cart or null)
+ *   - sold-out    → greyed + line-through + aria-label "sold out" (delivered or absent)
  *
- * Empty/garbled sizes → "Sizes TBA / መጠን በቅርቡ" instead of all-sold-out grid.
+ * Falls back to free-text parseAvailableSizes if shoe_sizes is absent / empty
+ * (shows all listed sizes as coming-soon, absent ones as sold-out).
  *
- * NOT interactive — do not add click handlers. Reserve/request flow is
- * handled separately by the mode=request panel above.
+ * Empty / no parseable sizes → "Sizes TBA / መጠን በቅርቡ" (or omit if no sizes field).
+ *
+ * NOT interactive — do not add click handlers here.
  */
-function SizeStrip({ sizes }: { sizes: string | null }) {
-  // If no parseable sizes, show TBA notice rather than a fully-greyed grid.
-  const hasUsableSizes = parseAvailableSizes(sizes).size > 0;
+function SizeStrip({
+  shoeSizes,
+  sizesText,
+}: {
+  shoeSizes: ShoeSize[] | undefined;
+  sizesText: string | null;
+}) {
+  // Prefer per-size DB rows when available.
+  const hasSizeRows = shoeSizes && shoeSizes.length > 0;
+
+  if (hasSizeRows) {
+    const grid = sizeGridFromSizes(shoeSizes!);
+
+    // If every size is sold-out (delivered + absent) and there are no listed
+    // coming-soon/on-the-way/in-stock, it still makes sense to show the grid —
+    // it tells the customer which sizes were offered (and are now gone).
+    // Only omit the strip if shoe_sizes itself is empty (handled above).
+
+    return (
+      <div className="border-t border-neutral-100 pt-2">
+        {/* Label row — bilingual, subtle */}
+        <p
+          className="text-[9px] uppercase tracking-wider text-neutral-400 mb-1.5 leading-none"
+          aria-hidden="true"
+        >
+          Sizes ·{" "}
+          <span
+            lang="am"
+            style={{
+              fontFamily:
+                "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif",
+            }}
+          >
+            መጠን
+          </span>
+        </p>
+
+        {/*
+          Chip grid — uses flex-wrap so chips reflow on narrow (2-up phone) cards.
+          Compact sizing: text-[11px] + px-1.5 py-0.5 keeps chips tidy while
+          remaining legible; 13 chips across a 160px card wrap to ≤3 rows.
+        */}
+        <div
+          className="flex flex-wrap gap-0.5"
+          role="list"
+          aria-label="Size availability"
+        >
+          {grid.map((entry) => {
+            const state = entry.customerState ?? "sold-out";
+            const isSoldOut = !entry.available || state === "sold-out";
+            const ariaLabel = isSoldOut
+              ? `US ${entry.us} / EU ${entry.eu} — sold out`
+              : state === "in-stock"
+              ? `US ${entry.us} / EU ${entry.eu} — in stock`
+              : state === "on-the-way"
+              ? `US ${entry.us} / EU ${entry.eu} — on the way`
+              : `US ${entry.us} / EU ${entry.eu}`;
+
+            // Chip background: per-state colour
+            const chipBg = isSoldOut
+              ? "bg-neutral-50 text-neutral-400"
+              : state === "in-stock"
+              ? "bg-[#1F7A52] text-white"
+              : state === "on-the-way"
+              ? "bg-[#E8B53A] text-neutral-900"
+              : "bg-neutral-100 text-neutral-700"; // coming-soon
+
+            return (
+              <span
+                key={entry.us}
+                role="listitem"
+                title={ariaLabel}
+                aria-label={ariaLabel}
+                className={[
+                  "inline-flex flex-col items-center leading-none rounded px-1.5 py-0.5",
+                  chipBg,
+                ].join(" ")}
+              >
+                <span
+                  className={[
+                    "text-[11px] font-medium",
+                    isSoldOut ? "line-through" : "",
+                  ].join(" ")}
+                >
+                  {entry.us}
+                </span>
+                <span
+                  className={[
+                    "text-[9px] leading-none mt-px",
+                    isSoldOut
+                      ? "text-neutral-300"
+                      : state === "in-stock"
+                      ? "text-white/80"
+                      : state === "on-the-way"
+                      ? "text-neutral-700"
+                      : "text-neutral-500",
+                  ].join(" ")}
+                >
+                  {entry.eu}
+                </span>
+              </span>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback: no shoe_sizes rows yet — use free-text field.
+  const hasUsableSizes = parseAvailableSizes(sizesText).size > 0;
 
   if (!hasUsableSizes) {
-    if (!sizes || !sizes.trim()) {
+    if (!sizesText || !sizesText.trim()) {
       // No sizes field at all — silently omit the strip.
       return null;
     }
@@ -317,11 +423,13 @@ function SizeStrip({ sizes }: { sizes: string | null }) {
     );
   }
 
-  const grid = sizeGrid(sizes);
+  // Legacy fallback: free-text sizes, no per-size status yet.
+  // Render as "coming-soon" for listed sizes, sold-out for others.
+  const grid = sizeGridFromSizes([]); // all sold-out baseline
+  const available = parseAvailableSizes(sizesText);
 
   return (
     <div className="border-t border-neutral-100 pt-2">
-      {/* Label row — bilingual, subtle */}
       <p
         className="text-[9px] uppercase tracking-wider text-neutral-400 mb-1.5 leading-none"
         aria-hidden="true"
@@ -337,41 +445,33 @@ function SizeStrip({ sizes }: { sizes: string | null }) {
           መጠን
         </span>
       </p>
-
-      {/*
-        Chip grid — uses flex-wrap so chips reflow on narrow (2-up phone) cards.
-        Compact sizing: text-[11px] + px-1.5 py-0.5 keeps chips tidy while
-        remaining legible; 13 chips across a 160px card wrap to ≤3 rows.
-      */}
       <div
         className="flex flex-wrap gap-0.5"
         role="list"
         aria-label="Size availability"
       >
         {grid.map((entry) => {
-          const label = entry.available
+          const isAvailable = available.has(entry.us);
+          const ariaLabel = isAvailable
             ? `US ${entry.us} / EU ${entry.eu}`
             : `US ${entry.us} / EU ${entry.eu} — sold out`;
-
           return (
             <span
               key={entry.us}
               role="listitem"
-              title={label}
-              aria-label={label}
+              title={ariaLabel}
+              aria-label={ariaLabel}
               className={[
                 "inline-flex flex-col items-center leading-none rounded px-1.5 py-0.5",
-                entry.available
-                  ? // Available: warm neutral bg, readable text
-                    "bg-neutral-100 text-neutral-700"
-                  : // Unavailable: greyed bg, muted text, strikethrough
-                    "bg-neutral-50 text-neutral-400",
+                isAvailable
+                  ? "bg-neutral-100 text-neutral-700"
+                  : "bg-neutral-50 text-neutral-400",
               ].join(" ")}
             >
               <span
                 className={[
                   "text-[11px] font-medium",
-                  entry.available ? "" : "line-through",
+                  isAvailable ? "" : "line-through",
                 ].join(" ")}
               >
                 {entry.us}
@@ -379,7 +479,7 @@ function SizeStrip({ sizes }: { sizes: string | null }) {
               <span
                 className={[
                   "text-[9px] leading-none mt-px",
-                  entry.available ? "text-neutral-500" : "text-neutral-300",
+                  isAvailable ? "text-neutral-500" : "text-neutral-300",
                 ].join(" ")}
               >
                 {entry.eu}

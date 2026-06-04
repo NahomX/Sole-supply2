@@ -6,13 +6,19 @@
  *
  * IMPORTANT: this module must stay server-only (it uses supabaseService which
  * holds the service-role key). Never import it from a "use client" component.
+ *
+ * Phase 1 note: logistics status is now tracked per-size in shoe_sizes.
+ * The per-shoe setLogisticsStatus helper is REMOVED. Use setSizeStatus or
+ * advanceAllSizes instead. The bots use advanceAllSizes (interim) until
+ * Phase 2 ships the per-size drill-down UX.
  */
 
 import { supabaseService } from "@/lib/supabase";
-import type { Shoe, ShoeStatus, LogisticsStatus } from "@/lib/supabase";
+import type { Shoe, ShoeSize, ShoeStatus, LogisticsStatus } from "@/lib/supabase";
 import { scrapeOpenGraph } from "@/lib/scrape";
 import { brandFromUrl } from "@/lib/brand";
 import { sendTelegramMessage } from "@/lib/telegram";
+import { parseAvailableSizes } from "@/lib/sizes";
 
 // ---------------------------------------------------------------------------
 // Ops feed — fire-and-forget push to the shared team group chat.
@@ -73,6 +79,20 @@ export type CreateShoeInput = {
   price_usd?: number | null;
   sizes?: string | null;
   notes?: string | null;
+  /**
+   * Initial logistics status for all sizes (used by incart bot).
+   * If set + sizes are parseable, shoe_sizes rows are created at this status.
+   * If set but sizes is null/blank, no shoe_sizes rows are created now
+   * (admin can add sizes manually via the per-size editor).
+   *
+   * The old `logistics_status` field on shoes is gone (dropped in 0005).
+   * We keep this param name-compatible with the incart bot caller.
+   */
+  initial_logistics_status?: LogisticsStatus | null;
+  /**
+   * @deprecated Use initial_logistics_status. Kept for backward compat with
+   * existing bot callers that pass `logistics_status`. Treated identically.
+   */
   logistics_status?: LogisticsStatus | null;
   /** Optional context for the ops feed. Does not affect the DB write. */
   meta?: FeedMeta;
@@ -84,11 +104,10 @@ export type CreateShoeResult =
 
 /**
  * Scrape Open Graph data from `url`, merge with any caller-supplied overrides,
- * and insert a new shoe row (status = 'upcoming' by default, logistics_status
- * as supplied or null).
+ * and insert a new shoe row (status = 'upcoming' by default).
  *
- * If logistics_status is 'in_cart' (or any non-null value), a one-line ops feed
- * message is posted fire-and-forget to the shared team group chat.
+ * If initial_logistics_status (or legacy logistics_status) is 'in_cart',
+ * a one-line ops feed message is posted fire-and-forget.
  */
 export async function createShoeFromUrl(
   input: CreateShoeInput
@@ -105,16 +124,20 @@ export async function createShoeFromUrl(
   }));
   const brand = brandFromUrl(url);
 
+  const sizesText = input.sizes ?? null;
+  // Accept either param name for backward compat with incart bot.
+  const initLs = input.initial_logistics_status ?? input.logistics_status ?? null;
+
   const row = {
     url,
     title: (input.title ?? scraped.title ?? url).toString().slice(0, 300),
     brand,
     image_url: input.image_url ?? scraped.image ?? null,
     price_usd: input.price_usd ?? scraped.price ?? null,
-    sizes: input.sizes ?? null,
+    sizes: sizesText,
     notes: input.notes ?? null,
     status: "upcoming" as ShoeStatus,
-    logistics_status: input.logistics_status ?? null,
+    // logistics_status column dropped in 0005 — not written here
   };
 
   const db = supabaseService();
@@ -122,11 +145,22 @@ export async function createShoeFromUrl(
   if (error) return { shoe: null, error: error.message };
   const shoe = data as Shoe;
 
-  // Post to ops feed only when the shoe is created with in_cart logistics status
-  // (i.e. via the incart bot). Regular web submits (logistics_status = null) are
-  // not posted here — they appear in the admin dashboard instead.
-  // Fire-and-forget — never blocks or throws.
-  if (row.logistics_status === "in_cart") {
+  // Seed shoe_sizes rows if an initial logistics status was supplied.
+  if (initLs !== null && sizesText) {
+    const parsed = parseAvailableSizes(sizesText);
+    if (parsed.size > 0) {
+      const sizeRows = Array.from(parsed).map((us) => ({
+        shoe_id: shoe.id,
+        us_size: us,
+        logistics_status: initLs,
+      }));
+      await db.from("shoe_sizes").insert(sizeRows);
+    }
+  }
+
+  // Post to ops feed only when the shoe is created with in_cart status
+  // (i.e. via the incart bot). Regular web submits are not posted here.
+  if (initLs === "in_cart") {
     await postOpsFeed(
       `\u{1F195} ${shoe.title} added to in-cart${buildFeedSuffix(meta)}`
     );
@@ -136,60 +170,12 @@ export async function createShoeFromUrl(
 }
 
 // ---------------------------------------------------------------------------
-// setLogisticsStatus
+// setSalesStatus
 // ---------------------------------------------------------------------------
 
 export type UpdateResult =
   | { shoe: Shoe; error: null }
   | { shoe: null; error: string };
-
-/**
- * Set `logistics_status` on a shoe by ID. Pass `null` to clear it.
- * Posts a one-line message to the ops feed (fire-and-forget) when the value
- * actually changes. Skips the post if the status is already equal to `to`.
- */
-export async function setLogisticsStatus(
-  id: string,
-  to: LogisticsStatus | null,
-  meta?: FeedMeta
-): Promise<UpdateResult> {
-  if (to !== null && !LOGISTICS.includes(to)) {
-    return { shoe: null, error: "invalid logistics_status" };
-  }
-  const db = supabaseService();
-
-  // Fetch current row first so we can (a) skip no-op updates and (b) have the
-  // title for the feed message — all in one round-trip via the update+select.
-  const { data: before } = await db
-    .from("shoes")
-    .select("logistics_status,title")
-    .eq("id", id)
-    .single();
-
-  const { data, error } = await db
-    .from("shoes")
-    .update({ logistics_status: to })
-    .eq("id", id)
-    .select()
-    .single();
-  if (error) return { shoe: null, error: error.message };
-  const shoe = data as Shoe;
-
-  // Only post when the value actually changed.
-  const prev = before?.logistics_status ?? null;
-  if (prev !== to) {
-    const label = to ?? "cleared";
-    await postOpsFeed(
-      `\u{1F45F} ${shoe.title} \u{2192} ${label}${buildFeedSuffix(meta)}`
-    );
-  }
-
-  return { shoe, error: null };
-}
-
-// ---------------------------------------------------------------------------
-// setSalesStatus
-// ---------------------------------------------------------------------------
 
 /**
  * Set `status` (sales status) on a shoe by ID.
@@ -233,26 +219,280 @@ export async function setSalesStatus(
 }
 
 // ---------------------------------------------------------------------------
+// Per-size helpers
+// ---------------------------------------------------------------------------
+
+/** Fetch all shoe_sizes rows for a shoe. */
+export async function getShoeSizes(
+  shoeId: string
+): Promise<{ sizes: ShoeSize[]; error: string | null }> {
+  const db = supabaseService();
+  const { data, error } = await db
+    .from("shoe_sizes")
+    .select("*")
+    .eq("shoe_id", shoeId)
+    .order("us_size");
+  if (error) return { sizes: [], error: error.message };
+  return { sizes: (data as ShoeSize[]) ?? [], error: null };
+}
+
+/**
+ * Set the logistics_status for one (shoe, size) pair.
+ * Dedupe: if the size row already has the same status, skips write + feed post.
+ * Posts "👟 {title} — US {size} → {status}" to the ops feed on a real change.
+ */
+export async function setSizeStatus(
+  shoeId: string,
+  usSize: string,
+  to: LogisticsStatus | null,
+  meta?: FeedMeta
+): Promise<{ size: ShoeSize | null; error: string | null }> {
+  if (to !== null && !LOGISTICS.includes(to)) {
+    return { size: null, error: "invalid logistics_status" };
+  }
+  const db = supabaseService();
+
+  // Fetch current size row + shoe title for feed message.
+  const [sizeQ, shoeQ] = await Promise.all([
+    db
+      .from("shoe_sizes")
+      .select("*")
+      .eq("shoe_id", shoeId)
+      .eq("us_size", usSize)
+      .maybeSingle(),
+    db.from("shoes").select("title").eq("id", shoeId).single(),
+  ]);
+
+  const prev = (sizeQ.data as ShoeSize | null)?.logistics_status ?? null;
+
+  // Upsert the size row at the new status.
+  const { data, error } = await db
+    .from("shoe_sizes")
+    .upsert(
+      { shoe_id: shoeId, us_size: usSize, logistics_status: to },
+      { onConflict: "shoe_id,us_size" }
+    )
+    .select()
+    .single();
+  if (error) return { size: null, error: error.message };
+  const size = data as ShoeSize;
+
+  // Only post when the value actually changed.
+  if (prev !== to) {
+    const title = (shoeQ.data as { title: string } | null)?.title ?? shoeId;
+    const label = to ?? "cleared";
+    await postOpsFeed(
+      `\u{1F45F} ${title} \u{2014} US ${usSize} \u{2192} ${label}${buildFeedSuffix(meta)}`
+    );
+  }
+
+  return { size, error: null };
+}
+
+/**
+ * Add a size to a shoe (inserts with null logistics_status).
+ * No-op if the size already exists (returns the existing row).
+ * Admins only — shippers may only change status of existing sizes.
+ */
+export async function addSize(
+  shoeId: string,
+  usSize: string
+): Promise<{ size: ShoeSize | null; error: string | null }> {
+  const db = supabaseService();
+  const { data, error } = await db
+    .from("shoe_sizes")
+    .insert({ shoe_id: shoeId, us_size: usSize, logistics_status: null })
+    .select()
+    .single();
+  if (error) {
+    // Unique-violation (23505) — size already exists; return it.
+    if (error.code === "23505") {
+      const { data: ex } = await db
+        .from("shoe_sizes")
+        .select("*")
+        .eq("shoe_id", shoeId)
+        .eq("us_size", usSize)
+        .single();
+      return { size: (ex as ShoeSize) ?? null, error: null };
+    }
+    return { size: null, error: error.message };
+  }
+  return { size: data as ShoeSize, error: null };
+}
+
+/**
+ * Remove a size row from a shoe.
+ * Admins only.
+ */
+export async function removeSize(
+  shoeId: string,
+  usSize: string
+): Promise<{ error: string | null }> {
+  const db = supabaseService();
+  const { error } = await db
+    .from("shoe_sizes")
+    .delete()
+    .eq("shoe_id", shoeId)
+    .eq("us_size", usSize);
+  if (error) return { error: error.message };
+  return { error: null };
+}
+
+/**
+ * Advance ALL eligible sizes of a shoe to `toStatus`.
+ *
+ * Interim bot behavior (Phase 1): work bots still tap a shoe → advance all
+ * sizes so they keep working after shoes.logistics_status is dropped. Phase 2
+ * will replace this with per-size drill-down multi-select in the bots.
+ *
+ * "Eligible" = sizes currently at the immediate predecessor of toStatus.
+ * Predecessor map: in_cart→null, purchased→in_cart, arrived→purchased,
+ * delivered→arrived.
+ *
+ * Posts a single feed message listing all advanced sizes.
+ * Returns { count } = number of sizes actually advanced.
+ */
+export async function advanceAllSizes(
+  shoeId: string,
+  toStatus: LogisticsStatus,
+  meta?: FeedMeta
+): Promise<{ count: number; error: string | null }> {
+  if (!LOGISTICS.includes(toStatus)) {
+    return { count: 0, error: "invalid logistics_status" };
+  }
+  const db = supabaseService();
+
+  const [sizesQ, shoeQ] = await Promise.all([
+    db.from("shoe_sizes").select("*").eq("shoe_id", shoeId),
+    db.from("shoes").select("title").eq("id", shoeId).single(),
+  ]);
+  if (sizesQ.error) return { count: 0, error: sizesQ.error.message };
+
+  const sizes = (sizesQ.data as ShoeSize[]) ?? [];
+  if (sizes.length === 0) return { count: 0, error: null };
+
+  // Only advance sizes at the expected predecessor status.
+  const predecessors: Record<LogisticsStatus, LogisticsStatus | null> = {
+    in_cart: null,
+    purchased: "in_cart",
+    arrived: "purchased",
+    delivered: "arrived",
+  };
+  const fromStatus = predecessors[toStatus];
+  const eligible = sizes.filter((sz) => sz.logistics_status === fromStatus);
+  if (eligible.length === 0) return { count: 0, error: null };
+
+  const { error } = await db
+    .from("shoe_sizes")
+    .update({ logistics_status: toStatus })
+    .eq("shoe_id", shoeId)
+    .in("us_size", eligible.map((sz) => sz.us_size));
+  if (error) return { count: 0, error: error.message };
+
+  const title = (shoeQ.data as { title: string } | null)?.title ?? shoeId;
+  const sizeList = eligible.map((sz) => `US ${sz.us_size}`).join(", ");
+  await postOpsFeed(
+    `\u{1F45F} ${title} \u{2014} ${sizeList} \u{2192} ${toStatus}${buildFeedSuffix(meta)}`
+  );
+
+  return { count: eligible.length, error: null };
+}
+
+/**
+ * Sync shoe_sizes from a free-text sizes string (e.g. when admin edits sizes).
+ * - Insert rows for newly listed US sizes (with null logistics_status).
+ * - Delete rows for sizes no longer listed.
+ * - Preserves existing logistics_status for sizes that remain.
+ */
+export async function syncSizesFromText(
+  shoeId: string,
+  sizesText: string | null
+): Promise<{ error: string | null }> {
+  const db = supabaseService();
+  const desired = parseAvailableSizes(sizesText);
+
+  const { data: existing, error: fetchErr } = await db
+    .from("shoe_sizes")
+    .select("us_size")
+    .eq("shoe_id", shoeId);
+  if (fetchErr) return { error: fetchErr.message };
+
+  const existingSet = new Set(
+    (existing as { us_size: string }[]).map((r) => r.us_size)
+  );
+
+  // Insert brand-new sizes.
+  const toInsert = Array.from(desired)
+    .filter((us) => !existingSet.has(us))
+    .map((us) => ({ shoe_id: shoeId, us_size: us, logistics_status: null }));
+  if (toInsert.length > 0) {
+    const { error: insErr } = await db.from("shoe_sizes").insert(toInsert);
+    if (insErr) return { error: insErr.message };
+  }
+
+  // Delete removed sizes.
+  const toDelete = Array.from(existingSet).filter((us) => !desired.has(us));
+  if (toDelete.length > 0) {
+    const { error: delErr } = await db
+      .from("shoe_sizes")
+      .delete()
+      .eq("shoe_id", shoeId)
+      .in("us_size", toDelete);
+    if (delErr) return { error: delErr.message };
+  }
+
+  return { error: null };
+}
+
+// ---------------------------------------------------------------------------
 // List helpers
 // ---------------------------------------------------------------------------
 
-/** Fetch shoes by logistics_status. Pass null to get unstarted shoes. */
+/**
+ * Fetch shoes that have at least one size at `logisticsStatus`.
+ * Returns shoes with their full shoe_sizes arrays (all sizes, not just matching).
+ * Pass null to get shoes with no sizes started (all null or no shoe_sizes rows).
+ */
 export async function getShoesByLogistics(
   logisticsStatus: LogisticsStatus | null
 ): Promise<{ shoes: Shoe[]; error: string | null }> {
   const db = supabaseService();
-  let q = db.from("shoes").select("*").order("created_at", { ascending: true });
+
   if (logisticsStatus === null) {
-    q = q.is("logistics_status", null);
-  } else {
-    q = q.eq("logistics_status", logisticsStatus);
+    // Unstarted: shoes where all sizes are null, or shoe has no size rows.
+    const { data, error } = await db
+      .from("shoes")
+      .select("*, shoe_sizes(*)")
+      .order("created_at", { ascending: true });
+    if (error) return { shoes: [], error: error.message };
+    const all = (data as Shoe[]) ?? [];
+    const unstarted = all.filter((s) => {
+      const szs = s.shoe_sizes ?? [];
+      return szs.length === 0 || szs.every((sz) => sz.logistics_status === null);
+    });
+    return { shoes: unstarted, error: null };
   }
-  const { data, error } = await q;
+
+  // Shoes with at least one size at the given status — look up via shoe_sizes.
+  const { data: sizeRows, error: sizeErr } = await db
+    .from("shoe_sizes")
+    .select("shoe_id")
+    .eq("logistics_status", logisticsStatus);
+  if (sizeErr) return { shoes: [], error: sizeErr.message };
+
+  const ids = [...new Set((sizeRows as { shoe_id: string }[]).map((r) => r.shoe_id))];
+  if (ids.length === 0) return { shoes: [], error: null };
+
+  const { data, error } = await db
+    .from("shoes")
+    .select("*, shoe_sizes(*)")
+    .in("id", ids)
+    .order("created_at", { ascending: true });
   if (error) return { shoes: [], error: error.message };
   return { shoes: (data as Shoe[]) ?? [], error: null };
 }
 
-/** Fetch all shoes for admin/ops view (includes url). */
+/** Fetch all shoes for admin/ops view (includes url + shoe_sizes). */
 export async function getAllShoes(): Promise<{
   shoes: Shoe[];
   error: string | null;
@@ -260,7 +500,7 @@ export async function getAllShoes(): Promise<{
   const db = supabaseService();
   const { data, error } = await db
     .from("shoes")
-    .select("*")
+    .select("*, shoe_sizes(*)")
     .order("created_at", { ascending: true });
   if (error) return { shoes: [], error: error.message };
   return { shoes: (data as Shoe[]) ?? [], error: null };
@@ -269,6 +509,7 @@ export async function getAllShoes(): Promise<{
 /**
  * Fetch shoes for the customer-facing view. Returns only fields safe to
  * show publicly — `url` is NEVER included (producer-URL redaction boundary).
+ * Joins shoe_sizes so the storefront renders per-size status chips.
  */
 export type PublicShoe = Omit<Shoe, "url">;
 
@@ -278,7 +519,7 @@ export async function getPublicShoes(filter?: {
   const db = supabaseService();
   let q = db
     .from("shoes")
-    .select("id,title,brand,image_url,price_usd,sizes,notes,status,logistics_status,created_at")
+    .select("id,title,brand,image_url,price_usd,sizes,notes,status,created_at,shoe_sizes(*)")
     .order("created_at", { ascending: false });
   if (filter?.status) {
     q = q.eq("status", filter.status);

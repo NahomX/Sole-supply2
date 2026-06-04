@@ -1,7 +1,7 @@
 import { supabaseService, type Shoe } from "@/lib/supabase";
 import { getSessionInfo } from "@/lib/auth";
 import { ShoeCard } from "@/components/ShoeCard";
-import { customerLabel } from "@/lib/labels";
+import { shoeSection } from "@/lib/labels";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -10,9 +10,11 @@ export const revalidate = 0;
 async function getShoes(): Promise<Shoe[]> {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return [];
   const db = supabaseService();
+  // Join shoe_sizes so shoeSection() can compute the best section from
+  // per-size logistics statuses (Phase 1).
   const { data } = await db
     .from("shoes")
-    .select("*")
+    .select("*, shoe_sizes(*)")
     .order("created_at", { ascending: false });
   return (data as Shoe[]) ?? [];
 }
@@ -42,17 +44,11 @@ export default async function HomePage() {
   const isAdmin = session?.profile?.role === "admin";
   const shoes = shoesRaw.map((s) => redactForViewer(s, isAdmin));
 
-  // Split into sections per the customer label mapping.
-  const inStock = shoes.filter((s) => customerLabel(s).section === "in-stock");
-  const onTheWay = shoes.filter(
-    (s) => customerLabel(s).section === "on-the-way"
-  );
-  const comingSoon = shoes.filter(
-    (s) => customerLabel(s).section === "coming-soon"
-  );
-  const previously = shoes.filter(
-    (s) => customerLabel(s).section === "previously"
-  );
+  // Split into sections using shoeSection(), which uses per-size logistics status.
+  const inStock = shoes.filter((s) => shoeSection(s) === "in-stock");
+  const onTheWay = shoes.filter((s) => shoeSection(s) === "on-the-way");
+  const comingSoon = shoes.filter((s) => shoeSection(s) === "coming-soon");
+  const previously = shoes.filter((s) => shoeSection(s) === "previously");
 
   const hasAny = shoes.length > 0;
 

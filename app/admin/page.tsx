@@ -30,12 +30,13 @@ export default async function AdminPage() {
   }
 
   const db = supabaseService();
-  // Shippers only need the shoes list (to update logistics_status). Skip the
-  // profiles + interests queries for them — those are admin-only views.
+  // Shippers only need the shoes list (to update per-size logistics status).
+  // Skip the profiles + interests queries for them — those are admin-only views.
+  // Join shoe_sizes so the per-size editor has current status data.
   const isAdmin = role === "admin";
   const shoesQ = await db
     .from("shoes")
-    .select("*")
+    .select("*, shoe_sizes(*)")
     .order("created_at", { ascending: false });
   const shoes = (shoesQ.data as Shoe[]) ?? [];
 
