@@ -1,8 +1,8 @@
 # Sole Supply — STATUS
 
-**Version:** 12
-**Last updated:** 2026-06-02 (pm-sole-supply — PR #15 legibility fix: larger chip text + stronger contrast)
-**State:** SIX PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots), #11 PR B (feat/telegram-bots-work), #12 PR C (feat/ops-feed, stacked on PR B), #13 (feat/berebaso-rebrand, stacked on PR C), #15 (feat/size-availability, branched from main 408823a — independent). Merge order for bots stack: #10 → #11 → #12 → #13; PR #9 and PR #15 can merge independently.
+**Version:** 13
+**Last updated:** 2026-06-03 (pm-sole-supply — PR #16 feat/per-size-status-p1: shoe_sizes table + per-size logistics pipeline Phase 1)
+**State:** SEVEN PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots), #11 PR B (feat/telegram-bots-work), #12 PR C (feat/ops-feed, stacked on PR B), #13 (feat/berebaso-rebrand, stacked on PR C), #15 (feat/size-availability, branched from main 408823a — independent), #16 (feat/per-size-status-p1, branched from origin/main 2f8d8f3 — independent). Merge order for bots stack: #10 → #11 → #12 → #13; PR #9, PR #15, and PR #16 can merge independently. PR #16 requires user to run migration 0005 in Supabase after merge.
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
 
@@ -125,6 +125,41 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 
 ---
 
+### PR #16 — `feat/per-size-status-p1` — Per-size logistics status (Phase 1)
+**URL:** https://github.com/NahomX/Sole-supply2/pull/16
+**Branch:** `feat/per-size-status-p1` (branched from `origin/main` at `2f8d8f3`)
+**Independent** — not stacked on any other open PR; can merge any time.
+
+**What's in it:**
+- `supabase/migrations/0005_shoe_sizes.sql` (new): create `shoe_sizes` table (one row per shoe×size, nullable per-size `logistics_status` with 4-value check, unique(shoe_id, us_size), index, RLS + public-read policy). Backfill by parsing `shoes.sizes` free-text into rows (each inheriting `shoes.logistics_status`). Then DROP `shoes.logistics_status`. Idempotent. USER must run in Supabase.
+- `lib/supabase.ts`: add `ShoeSize` type; drop `logistics_status` from `Shoe`; add optional `shoe_sizes?: ShoeSize[]` join field.
+- `lib/shoes.ts`: add `getShoeSizes`, `setSizeStatus`, `addSize`, `removeSize`, `advanceAllSizes` (interim bot), `syncSizesFromText`; rework `getShoesByLogistics` / `getPublicShoes` / `getAllShoes` to join `shoe_sizes`; remove `setLogisticsStatus`.
+- `lib/labels.ts`: add `SizeCustomerState`, `sizeLabel`, `shoeSection`; refactor `customerLabel` to aggregate via `shoeSection`.
+- `lib/sizes.ts`: add `sizeGridFromSizes` (authoritative, from DB rows); keep `sizeGrid` (legacy text fallback) + `parseAvailableSizes`.
+- `lib/staleness.ts`: stale = all sizes null/in_cart (or no sizes) AND >7d old.
+- `lib/bots/handlers.ts`: INTERIM — work bots + ops bot use `advanceAllSizes`; `setLogisticsStatus` call sites removed.
+- `components/ShoeCard.tsx`: `SizeStrip` driven by `shoe_sizes` rows; in-stock=green, on-the-way=gold, coming-soon=muted, sold-out=greyed+struck; a11y preserved.
+- `app/page.tsx`: join `shoe_sizes`; section by `shoeSection()`.
+- `app/admin/page.tsx`: join `shoe_sizes` in query.
+- `app/admin/AdminDashboard.tsx`: per-size chip editor (shipper: set status; admin: add/remove + set).
+- `app/api/shoes/[id]/route.ts`: drop logistics branch; admin-only for sales + scalar fields.
+- `app/api/shoes/[id]/sizes/route.ts` (new): GET/POST/DELETE/PATCH per-size endpoint.
+
+**Build gate:** `npm ci` + `npm run lint` + `next build` all green (verified in throwaway worktree, commit `08356aa`).
+
+**USER must do before feature goes live:**
+1. Merge PR #16 (or after — the code path is safe pre-migration, falls back to free-text strip).
+2. Run `supabase/migrations/0005_shoe_sizes.sql` in Supabase SQL Editor.
+3. Verify: `select shoe_id, us_size, logistics_status from shoe_sizes limit 20;` shows backfilled rows.
+4. Verify: `select count(*) from information_schema.columns where table_name='shoes' and column_name='logistics_status';` returns 0.
+
+**What's deferred to Phase 2 (separate PR):**
+- Per-size drill-down multi-select in work bots (purchaser, arrived, delivery).
+- Incart bot per-size prompting after shoe creation.
+- Ops bot `/logistics` per-size selection (currently advances all eligible sizes).
+
+---
+
 ### PR #15 — `feat/size-availability` — Size availability grid on shoe cards
 **URL:** https://github.com/NahomX/Sole-supply2/pull/15
 **Branch:** `feat/size-availability` (branched from `origin/main` at `408823a`)
@@ -243,6 +278,7 @@ Note: `package-lock.json` + `.eslintrc.json` were generated and committed as par
 
 ## Changelog
 
+- v13 — 2026-06-03 — pm-sole-supply — PR #16 (feat/per-size-status-p1, commit 08356aa, branched from main 2f8d8f3). 13 files. New shoe_sizes table (0005 migration — USER must run). Per-size logistics pipeline: lib/supabase.ts (ShoeSize type, logistics_status dropped from Shoe), lib/shoes.ts (per-size helpers: getShoeSizes, setSizeStatus, addSize, removeSize, advanceAllSizes, syncSizesFromText; list helpers join shoe_sizes; setLogisticsStatus removed), lib/labels.ts (sizeLabel, shoeSection, customerLabel refactored), lib/sizes.ts (sizeGridFromSizes + SizeCustomerState), lib/staleness.ts (per-size stale rule), components/ShoeCard.tsx (SizeStrip from DB rows: green/gold/muted/greyed+struck), app/page.tsx (join + shoeSection), app/admin/page.tsx (join), app/admin/AdminDashboard.tsx (per-size chip editor), app/api/shoes/[id]/route.ts (logistics branch dropped), app/api/shoes/[id]/sizes/route.ts (new GET/POST/DELETE/PATCH). Bots interim: advanceAllSizes. Build gate green. PR #16 open. Feature live only after user runs 0005.
 - v12 — 2026-06-02 — pm-sole-supply — PR #15 legibility fix (commit 7738e7e). SizeStrip chip styling bumped: US text-[9px]→text-[11px], EU text-[8px]→text-[9px], available EU text-neutral-400→text-neutral-500, sold-out US container text-neutral-300→text-neutral-400, sold-out EU text-neutral-200→text-neutral-300, chip padding px-1→px-1.5. All other SizeStrip behavior (flex-wrap gap-0.5, bilingual label, role/aria, TBA states) preserved. Build gate green (npm ci + lint + next build in throwaway worktree). Pushed to feat/size-availability; PR #15 updated in place. Compare-and-swap v11→v12 (N_start=N_disk=11).
 - v11 — 2026-06-02 — pm-sole-supply — PR #15 (feat/size-availability, branched from main 408823a, commit 3aa4959). New lib/sizes.ts: US 7–13 ↔ EU table + parseAvailableSizes (comma/space/slash/range/EU-token) + sizeGrid. ShoeCard: SizeStrip — compact flex-wrap chips, available=solid, unavailable=greyed+strikethrough+aria; bilingual "Sizes · መጠን" label; null/blank sizes → omit strip; garbled → "Sizes TBA / መጠን በቅርቡ". No schema change, no new env vars. Build gate green. PR #15 open, independent (merges any time). Compare-and-swap v10→v11 (N_start=N_disk=10).
 - v10 — 2026-06-02 — pm-sole-supply — PR #13 UX/UI review fixes committed (fb731ec, feat/berebaso-rebrand). P0: Noto Sans Ethiopic loaded via next/font/google (--font-ethiopic var); ShoeCard onError img fallback; remotePatterns left permissive. P1: hero dark scrim + text-white/90; duplicate id="in-stock" removed, scroll-mt-24 on actual section, hero CTA anchors to first non-empty section. P2: badge palette (gold for "On the way", espresso for "Coming soon"); JS hover → Tailwind brand tokens + focus-visible; py-2.5/items-stretch tap targets; bilingual footer. Owner-confirmed: brand spelling "በረባሶ" locked; CTA changed to ይያዙ (Reserve). Remaining Amharic copy (hero tagline + 4 subtitles) still needs owner verification. Build gate green. PR #13 description updated. Compare-and-swap v9→v10 (N_start=N_disk=9).
