@@ -27,7 +27,19 @@ import {
   STATUSES,
   LOGISTICS,
 } from "@/lib/shoes";
+import type { FeedMeta } from "@/lib/shoes";
 import type { Shoe, LogisticsStatus, ShoeStatus } from "@/lib/supabase";
+
+// ---------------------------------------------------------------------------
+// Helper — build FeedMeta from a grammY Context + bot entry name.
+// ---------------------------------------------------------------------------
+
+function botMeta(ctx: Context, botName: string): FeedMeta {
+  const username = ctx.from?.username;
+  const firstName = ctx.from?.first_name;
+  const actorLabel = username ? `@${username}` : (firstName ?? `tg:${ctx.from?.id}`);
+  return { actorLabel, source: botName };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,7 +74,9 @@ async function guardAllowlist(
   }
   const result = await checkAllowlist(telegramId, botName, requiredRole);
   if (!result.allowed) {
-    await ctx.reply(`Access denied: ${result.reason}`);
+    await ctx.reply(
+      `Access denied: ${result.reason}\n\nYour Telegram ID: ${telegramId}`
+    );
     return false;
   }
   return true;
@@ -79,7 +93,7 @@ export function registerCustomerBot(bot: Bot, _entry: BotEntry) {
       .row()
       .text("Coming soon", "list:upcoming");
     await ctx.reply(
-      "Welcome to Sole Supply! Browse our sneaker collection:",
+      "Welcome to Berebaso! Browse our sneaker collection:",
       { reply_markup: kb }
     );
   });
@@ -163,6 +177,7 @@ export function registerIncartBot(bot: Bot, entry: BotEntry) {
     const result = await createShoeFromUrl({
       url: text,
       logistics_status: "in_cart",
+      meta: botMeta(ctx, entry.name),
     });
     if (result.error || !result.shoe) {
       await ctx.api.editMessageText(
@@ -242,6 +257,11 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
 
   bot.command("start", listAndShow);
   bot.command("list", listAndShow);
+  bot.command("whoami", async (ctx) => {
+    await ctx.reply(
+      `Your Telegram ID: ${ctx.from?.id ?? "unknown"}\nUsername: @${ctx.from?.username ?? "none"}`
+    );
+  });
   bot.command("help", async (ctx) => {
     if (!(await guardAllowlist(ctx, entry.name, "shipper"))) return;
     await ctx.reply(
@@ -256,7 +276,7 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
     }
     await ctx.answerCallbackQuery();
     const shoeId = ctx.match[1];
-    const result = await setLogisticsStatus(shoeId, config.toStatus);
+    const result = await setLogisticsStatus(shoeId, config.toStatus, botMeta(ctx, entry.name));
     if (result.error) {
       await ctx.reply(`Error: ${result.error}`);
       return;
@@ -276,7 +296,7 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
   bot.command("start", async (ctx) => {
     if (!(await guardAllowlist(ctx, entry.name, "admin"))) return;
     await ctx.reply(
-      "Sole Supply ops bot.\n\nCommands:\n" +
+      "Berebaso ops bot.\n\nCommands:\n" +
         "/list — full pipeline overview\n" +
         "/whoami — your Telegram ID\n" +
         "/sales — manage sales status\n" +
@@ -361,7 +381,7 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
     await ctx.answerCallbackQuery();
     const shoeId = ctx.match[1];
     const newStatus = ctx.match[2] as ShoeStatus;
-    const result = await setSalesStatus(shoeId, newStatus);
+    const result = await setSalesStatus(shoeId, newStatus, botMeta(ctx, entry.name));
     if (result.error) {
       await ctx.reply(`Error: ${result.error}`);
       return;
@@ -417,7 +437,7 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
     const shoeId = ctx.match[1];
     const raw = ctx.match[2];
     const newStatus = raw === "__null__" ? null : (raw as LogisticsStatus);
-    const result = await setLogisticsStatus(shoeId, newStatus);
+    const result = await setLogisticsStatus(shoeId, newStatus, botMeta(ctx, entry.name));
     if (result.error) {
       await ctx.reply(`Error: ${result.error}`);
       return;

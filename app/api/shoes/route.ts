@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // back if you can guarantee the field whitelist.
 
 export async function POST(req: NextRequest) {
-  const { error: gateError } = await requireRole(["admin", "submitter"]);
+  const { session, error: gateError } = await requireRole(["admin", "submitter"]);
   if (gateError) return gateError;
 
   const body = await req.json().catch(() => ({}));
@@ -24,6 +24,10 @@ export async function POST(req: NextRequest) {
     price_usd: body.price_usd ?? null,
     sizes: body.sizes ?? null,
     notes: body.notes ?? null,
+    meta: {
+      actorLabel: session?.email ?? undefined,
+      source: "web",
+    },
   });
 
   if (result.error) {

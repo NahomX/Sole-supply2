@@ -1,4 +1,4 @@
-# Sole Supply
+# Berebaso
 
 A small web app for a sneaker-importing workflow from the US to Addis Ababa, Ethiopia.
 
@@ -69,6 +69,27 @@ Open [http://localhost:3000](http://localhost:3000). Click **Sign in** in the he
 2. Import the repo into Vercel.
 3. Add env vars in Project Settings → Environment Variables (same four as `.env.local`).
 4. Deploy, then go back to Supabase → Auth → URL Configuration and add the Vercel URL + redirect URL.
+
+## Logistics flow (Telegram bot pipeline)
+
+The four work bots move each shoe through a discrete four-state logistics cascade:
+
+```
+in_cart → purchased → arrived → delivered
+```
+
+| Stage | Bot | Action |
+|---|---|---|
+| **In-cart** | `incart` bot | Shipper pastes a retailer URL → shoe created with `logistics_status = in_cart` |
+| **Purchased** | `purchaser` bot | Operator taps the shoe in the list → status advances to `purchased` |
+| **Arrived** | `arrived` bot | Shoe lands in Addis → status advances to `arrived` |
+| **Delivered** | `delivery` bot | Shoe handed to customer → status advances to `delivered` |
+
+Each transition fires a one-line message to the shared ops feed (Telegram group) so all admins see a live activity log. The ops bot (`/logistics`) can jump to any state directly for manual corrections.
+
+### Bot access
+
+Work bots are allowlist-gated. If you are denied access, the bot will reply with your numeric Telegram ID so you can share it with the admin to be added to the allowlist. You can also send `/whoami` to any work bot to retrieve your Telegram ID before attempting any other command.
 
 ## Notes and assumptions
 
