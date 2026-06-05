@@ -1,8 +1,8 @@
 # Sole Supply — STATUS
 
-**Version:** 16
-**Last updated:** 2026-06-04 (pm-sole-supply — PR #21 feat/purchaser-role: Phase 1 purchaser role + max-2 cap + bot re-gate)
-**State:** TEN PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots), #11 PR B (feat/telegram-bots-work), #12 PR C (feat/ops-feed, stacked on PR B), #13 (feat/berebaso-rebrand, stacked on PR C), #15 (feat/size-availability, branched from main 408823a — independent), #16 (feat/per-size-status-p1, branched from origin/main 2f8d8f3 — independent), #18 (feat/per-size-status-p2, stacked on #16 — merge #16 first), #20 (feat/payments-poc, branched from origin/main 94c49c0 — independent), #21 (feat/purchaser-role, branched from origin/main 94c49c0 — independent). Merge order for bots stack: #10 → #11 → #12 → #13; PR #9 and #15 independent; PR #16 then PR #18 (per-size pipeline); PR #20 independent (requires 0006 migration + Chapa env vars); PR #21 independent (requires 0007 migration). PR #16 requires user to run migration 0005 in Supabase after merge.
+**Version:** 17
+**Last updated:** 2026-06-04 (pm-sole-supply — PR #22 feat/issuing-rails: Phase 2 Stripe Issuing governance rails TEST mode)
+**State:** ELEVEN PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots), #11 PR B (feat/telegram-bots-work), #12 PR C (feat/ops-feed, stacked on PR B), #13 (feat/berebaso-rebrand, stacked on PR C), #15 (feat/size-availability, branched from main 408823a — independent), #16 (feat/per-size-status-p1, branched from origin/main 2f8d8f3 — independent), #18 (feat/per-size-status-p2, stacked on #16 — merge #16 first), #20 (feat/payments-poc, branched from origin/main 94c49c0 — independent), #21 (feat/purchaser-role, branched from origin/main 94c49c0 — independent), #22 (feat/issuing-rails, stacked on #21 — merge #21 first). Merge order for bots stack: #10 → #11 → #12 → #13; PR #9 and #15 independent; PR #16 then PR #18 (per-size pipeline); PR #20 independent (requires 0006 migration + Chapa env vars); PR #21 then PR #22 (Stripe Issuing stack). PR #16 requires user to run migration 0005 in Supabase after merge; PR #22 requires user to run migration 0008 in Supabase after merge.
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
 
@@ -261,6 +261,47 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 
 ---
 
+### PR #22 — `feat/issuing-rails` — Stripe Issuing governance rails (Phase 2, TEST mode)
+**URL:** https://github.com/NahomX/Sole-supply2/pull/22
+**Branch:** `feat/issuing-rails` (branched from `feat/purchaser-role`)
+**Stacked on PR #21** — merge PR #21 first, then this one.
+
+**What's in it:**
+- `package.json` + `package-lock.json`: add `stripe ^22.2.0`.
+- `supabase/migrations/0008_issuing_governance.sql` (new): `issuing_cards` (stripe_card_id/cardholder_id/last4/livemode; PAN never stored), `purchase_orders` (max_amount_cents CHECK <= 30000, partial unique index on card_id WHERE status='open', status CHECK draft|open|authorizing|closed|cancelled|failed, single_use + single_use_consumed + expires_at + approved_by bigint + stripe_authorization_id unique + livemode), `issuing_authorizations` (L2 decision log), `spend_ledger` (reserved/settled/voided; idempotent on stripe_authorization_id), `agent_runs` (Phase 3 audit log), `agent_config` (singleton, agent_enabled default false). All tables: RLS enabled, NO policies (service-role only), livemode column, updated_at triggers. Idempotent.
+- `lib/issuing.ts` (new, server-only): `provisionCard()` (Stripe cardholder + virtual card, L1 spending_controls: $300/auth $2k/day $5k/month + shoe_stores MCC; stores only stripe_card_id/cardholder_id/last4 — PAN/CVC never stored; livemode detected from key prefix), `freezeCard()`, `getRemainingHeadroom(cardId)` (from spend_ledger, daily + monthly).
+- `app/api/webhooks/stripe/route.ts` (new): `POST` handles `issuing_authorization.request` (L2: sig-verify fail-closed → DECLINE; single indexed query with optimistic status='open' guard — approve only if open unexpired single-use PO + amount <= max_amount_cents AND <= 30000 + daily/monthly headroom + MCC in allowed set; on approve: atomically set PO status='authorizing', write spend_ledger reservation, set stripe_authorization_id); `issuing_authorization.updated` / `issuing_transaction.created` (re-verify via Stripe API → close PO status='closed' → settle ledger → advance size_ids from in_cart→purchased via setSizeStatus → ops feed). Idempotent on stripe_authorization_id. livemode guard on all events.
+- `lib/bots/handlers.ts`: purchaser bot `/pending` command — lists draft POs (retailer + max $ + size count) with inline Approve/Decline buttons; Approve flips draft→open + sets expires_at ~30 min + records approved_by=telegram_id; Decline → cancelled. guardAllowlist re-verified on every callback.
+- `.env.example`: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `FORWARDING_ADDRESS_*` block (all server-only, no NEXT_PUBLIC_).
+
+**Build gate:** `npm ci` + `npm run lint` + `next build` all green (verified in throwaway worktree `wt-issuing`, commit `b2fc171`). Worktree cleaned up.
+
+**Stripe Dashboard setup (user must do before testing):**
+1. Enable Issuing in test mode: Dashboard → Balance → Issuing → Get started.
+2. Add webhook endpoint: Dashboard → Developers → Webhooks → Add endpoint.
+   - URL: `https://sole-supply2.vercel.app/api/webhooks/stripe`
+   - Events: `issuing_authorization.request`, `issuing_authorization.updated`, `issuing_transaction.created`
+   - **Set "Default action on timeout" → DECLINE** (critical: webhook outage = no spend).
+3. Copy webhook signing secret → set as `STRIPE_WEBHOOK_SECRET` in Vercel.
+
+**USER must do before feature goes live:**
+1. Merge PR #21 first.
+2. Run `supabase/migrations/0008_issuing_governance.sql` in Supabase SQL Editor.
+3. Set Vercel env vars: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `FORWARDING_ADDRESS_LINE1/CITY/STATE/POSTAL_CODE/COUNTRY`.
+4. Merge PR #22.
+5. Complete Stripe Dashboard setup (steps above).
+6. Test with Stripe's Issuing test-card simulator (see PR body for step-by-step).
+
+**Decline tests to run before any approval:**
+- Bad signature → DECLINE.
+- Over $300/auth → DECLINE.
+- Wrong MCC (not shoe_stores) → DECLINE.
+- No open PO → DECLINE.
+- Expired PO → DECLINE.
+- Already-used PO (single_use_consumed) → DECLINE.
+
+---
+
 ### PR #9 — `feat/stale-checker` (M1)
 **URL:** https://github.com/NahomX/Sole-supply2/pull/9
 
@@ -370,6 +411,7 @@ Note: `package-lock.json` + `.eslintrc.json` were generated and committed as par
 
 ## Changelog
 
+- v17 — 2026-06-04 — pm-sole-supply — PR #22 (feat/issuing-rails, commit b2fc171, stacked on feat/purchaser-role). 7 files (+1312/-7). Phase 2 Stripe Issuing governance rails TEST mode: package.json+lock (+stripe ^22.2.0); 0008_issuing_governance.sql (6 tables: issuing_cards, purchase_orders — max_amount_cents CHECK<=30000 + partial unique index on card_id WHERE status='open' + PO lifecycle status CHECK + single_use+expires_at+approved_by+stripe_authorization_id; issuing_authorizations, spend_ledger, agent_runs, agent_config — singleton agent_enabled=false; all RLS on, no policies, livemode column, updated_at triggers, idempotent); lib/issuing.ts (provisionCard+freezeCard+getRemainingHeadroom, server-only, PAN never stored); app/api/webhooks/stripe/route.ts (L2 issuing_authorization.request: sig-verify fail-closed→DECLINE, single indexed query optimistic-locked, approve only if open unexpired single-use under-cap PO + headroom + MCC allowed; capture event: re-verify→close PO→settle ledger→setSizeStatus in_cart→purchased→ops feed; idempotent on stripe_authorization_id; livemode guard everywhere); lib/bots/handlers.ts (purchaser bot /pending: list draft POs + Approve/Decline inline buttons; Approve→draft→open+expires_at 30min+approved_by; Decline→cancelled; guardAllowlist re-verified on every callback); .env.example (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, FORWARDING_ADDRESS_* — all server-only). No browser, no LLM, no live mode. Build gate green (npm ci + lint + next build in throwaway worktree). PR #22 open, stacked on #21. USER must: run 0008 migration + set Stripe env vars + Stripe dashboard setup (webhook URL + default-decline). Compare-and-swap v16→v17 (N_start=N_disk=16).
 - v16 — 2026-06-04 — pm-sole-supply — PR #21 (feat/purchaser-role, commit 6a53d33, branched from origin/main 94c49c0). 4 files (+94/-13). Phase 1 purchaser role: 0007_purchaser_role.sql (extend telegram_users.role CHECK to include 'purchaser'; enforce_purchaser_cap trigger — MAX 2 purchasers, idempotent); lib/bots/registry.ts (BotRole += "purchaser"; purchaser bot entry role "shipper"→"purchaser"); lib/bots/auth.ts (TelegramUser.role += 'purchaser'; role hierarchy: admin satisfies any, purchaser satisfies only purchaser, shipper satisfies only shipper); lib/bots/handlers.ts (guardAllowlist signature += "purchaser"; registerWorkBot derives workRole from entry.role — purchaser bot enforces "purchaser", arrived/delivery keep "shipper"; all per-callback re-checks preserved). No money, no Stripe, no agent. Build gate green (npm ci + lint + next build in throwaway worktree). PR #21 open. USER must run 0007 migration + insert purchaser rows. Compare-and-swap v15→v16 (N_start=N_disk=15).
 - v15 — 2026-06-03 — pm-sole-supply — PR #20 (feat/payments-poc, commit 20eebd6, branched from origin/main 94c49c0). 8 files (+728/-2 lines). Chapa admin-only test-mode payment POC: 0006_payments.sql (payments table, RLS on, service-role only, updated_at trigger, idempotent); lib/payments.ts (initChapa, verifyChapa, verifyChapaWebhookSig — HMAC-SHA256 fail-closed); app/api/admin/test-payment/route.ts (POST, double-gated: PAYMENTS_POC_ENABLED + admin role); app/api/webhooks/chapa/route.ts (POST, sig verify fail-closed → re-verify via Chapa before marking paid); lib/supabase.ts (+PaymentStatus+Payment types); app/admin/page.tsx (+recentPayments load); app/admin/AdminDashboard.tsx (+Payments tab, form, recent-payments table); .env.example (+3 server-only Chapa vars). Build gate green (npm ci + lint + next build in throwaway worktree). PR #20 open, independent. USER must: run 0006 migration + set 3 Chapa env vars + register webhook URL in Chapa dashboard. Compare-and-swap v14→v15 (N_start=N_disk=14).
 - v14 — 2026-06-04 — pm-sole-supply — PR #18 (feat/per-size-status-p2, commit fd928b8, stacked on feat/per-size-status-p1). 1 file: lib/bots/handlers.ts (+393/-84). Phase 2 per-size bot UX: work bots get drill-down multi-select (pick:{shoeId} → sz:{shoeId}:{usSize} toggle keyboard → go:{shoeId} advance selected or szall:{shoeId} advance all); stateless keyboard design encodes selection as ✓ prefix in button text, no session store, serverless-safe. In-cart bot prompts size selection after shoe creation (ic_sz/ic_done/ic_skip). Ops bot /logistics is full drill-down (ops_log_pick → ops_log_sz → ops_log_st incl. null/clear). guardAllowlist checked on all commands + callbacks. Customer bot unchanged. @grammyjs/types used for InlineKeyboardButton. Build gate green (npm ci + lint + next build in throwaway worktree). PR #18 open. Stacks on PR #16 — merge order: #16 then #18. Compare-and-swap v13→v14 (N_start=N_disk=13).
