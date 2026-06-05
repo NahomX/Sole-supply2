@@ -77,7 +77,7 @@ function escMd(s: string): string {
 async function guardAllowlist(
   ctx: Context,
   botName: string,
-  requiredRole: "shipper" | "admin"
+  requiredRole: "purchaser" | "shipper" | "admin"
 ): Promise<boolean> {
   const telegramId = ctx.from?.id;
   if (!telegramId) {
@@ -253,8 +253,13 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
   const config = WORK_BOT_CONFIGS[entry.name];
   if (!config) throw new Error(`No work-bot config for: ${entry.name}`);
 
+  // Derive the required role from the registry entry so each work bot enforces
+  // its own role. The purchaser bot requires "purchaser"; arrived/delivery
+  // require "shipper". Cast is safe — work bots never use "public".
+  const workRole = entry.role as "purchaser" | "shipper" | "admin";
+
   async function listAndShow(ctx: Context) {
-    if (!(await guardAllowlist(ctx, entry.name, "shipper"))) return;
+    if (!(await guardAllowlist(ctx, entry.name, workRole))) return;
     // getShoesByLogistics now returns shoes with ≥1 size at fromStatus.
     const { shoes, error } = await getShoesByLogistics(config.fromStatus);
     if (error) {
@@ -285,14 +290,14 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
     );
   });
   bot.command("help", async (ctx) => {
-    if (!(await guardAllowlist(ctx, entry.name, "shipper"))) return;
+    if (!(await guardAllowlist(ctx, entry.name, workRole))) return;
     await ctx.reply(
       `${entry.description}\n\nUse /list to see ${config.listLabel.toLowerCase()}.\nTap a shoe button to ${config.actionLabel.toLowerCase()}.`
     );
   });
 
   bot.callbackQuery(/^advance:(.+)$/, async (ctx) => {
-    if (!(await guardAllowlist(ctx, entry.name, "shipper"))) {
+    if (!(await guardAllowlist(ctx, entry.name, workRole))) {
       await ctx.answerCallbackQuery("Access denied.");
       return;
     }
