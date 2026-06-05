@@ -59,7 +59,7 @@ const MONTHLY_CAP_CENTS = 500_000;
  * MCC 5661 = "Shoe Stores" is the primary allowed category.
  * We match against the authorization's merchant_data.category.
  */
-const ALLOWED_MCC_CATEGORIES = new Set(["shoe_stores", "sporting_goods_stores"]);
+const ALLOWED_MCC_CATEGORIES = new Set(["shoe_stores"]);
 
 // ---------------------------------------------------------------------------
 // Stripe client
@@ -186,12 +186,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     event.type === "issuing_authorization.updated" ||
     event.type === "issuing_transaction.created"
   ) {
-    // These are async — we have time for a re-verify. Fire-and-forget is fine;
-    // we respond 200 immediately to Stripe and process in the background.
-    void handleCaptureEvent(stripe, event, expectedLivemode).catch((e) =>
-      console.error("[stripe-webhook] capture event error:", e)
-    );
-    return NextResponse.json({ received: true }, { status: 200 });
+    // Await the handler so Vercel does not freeze the function before the
+    // PO-close + shoe_sizes advance completes. On error, return 500 so
+    // Stripe re-delivers the event (it already received 200 for the request
+    // path — these capture events have no 2s constraint).
+    try {
+      await handleCaptureEvent(stripe, event, expectedLivemode);
+      return NextResponse.json({ received: true }, { status: 200 });
+    } catch (e) {
+      console.error("[stripe-webhook] capture event error:", e);
+      return NextResponse.json({ error: "capture handler failed" }, { status: 500 });
+    }
   }
 
   // Unknown event type — acknowledge and ignore.
