@@ -82,6 +82,7 @@ import {
 import type { FeedMeta } from "@/lib/shoes";
 import { SIZE_GRID } from "@/lib/sizes";
 import type { Shoe, LogisticsStatus, ShoeStatus, ShoeSize } from "@/lib/supabase";
+import { supabaseService } from "@/lib/supabase";
 
 // ---------------------------------------------------------------------------
 // Helper — build FeedMeta from a grammY Context + bot entry name.
@@ -511,12 +512,150 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
 
   bot.command("help", async (ctx) => {
     if (!(await guardAllowlist(ctx, entry.name, workRole))) return;
+    const extraCommands = entry.name === "purchaser"
+      ? "\n/pending — list draft Purchase Orders awaiting approval"
+      : "";
     await ctx.reply(
       `${entry.description}\n\n` +
         `Use /list to see ${config.listLabel.toLowerCase()}.\n` +
         `Tap a shoe → tap sizes to select → "Advance selected" (only those) or "Advance all".`
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Purchaser-bot only: /pending — PO approval UX (Phase 2).
+  //
+  // Lists draft Purchase Orders with inline Approve/Decline buttons.
+  // Approve: flips draft→open, sets expires_at (~30 min), records approved_by.
+  // Decline: sets status→cancelled.
+  //
+  // guardAllowlist is re-verified on every callback tap.
+  // -------------------------------------------------------------------------
+  if (entry.name === "purchaser") {
+    bot.command("pending", async (ctx) => {
+      if (!(await guardAllowlist(ctx, entry.name, workRole))) return;
+
+      const db = supabaseService();
+      const { data, error } = await db
+        .from("purchase_orders")
+        .select("id, retailer_domain, max_amount_cents, size_ids, created_at")
+        .eq("status", "draft")
+        .order("created_at", { ascending: true })
+        .limit(10);
+
+      if (error) {
+        await ctx.reply("Error fetching pending POs.");
+        return;
+      }
+
+      const pos = (data as {
+        id: string;
+        retailer_domain: string | null;
+        max_amount_cents: number;
+        size_ids: string[];
+        created_at: string;
+      }[]) ?? [];
+
+      if (pos.length === 0) {
+        await ctx.reply("No draft Purchase Orders pending approval.");
+        return;
+      }
+
+      for (const po of pos) {
+        const retailer = po.retailer_domain ?? "unknown retailer";
+        const maxDollars = (po.max_amount_cents / 100).toFixed(2);
+        const sizeCount = po.size_ids?.length ?? 0;
+        const label = `PO ${po.id.slice(0, 8)} — ${retailer} — $${maxDollars} — ${sizeCount} size(s)`;
+
+        const kb = new InlineKeyboard()
+          .text("Approve", `po_approve:${po.id}`)
+          .text("Decline", `po_decline:${po.id}`);
+
+        await ctx.reply(
+          `*Draft PO*\nRetailer: ${escMd(retailer)}\nMax spend: $${escMd(maxDollars)}\nSizes: ${sizeCount}\nID: \`${escMd(po.id.slice(0, 8))}\``,
+          { parse_mode: "MarkdownV2", reply_markup: kb }
+        );
+        void label; // referenced above for context
+      }
+    });
+
+    // Approve callback
+    bot.callbackQuery(/^po_approve:(.+)$/, async (ctx) => {
+      // Re-verify the tapper is still a purchaser on every callback.
+      if (!(await guardAllowlist(ctx, entry.name, workRole))) {
+        await ctx.answerCallbackQuery("Access denied.");
+        return;
+      }
+      await ctx.answerCallbackQuery();
+
+      const poId = ctx.match[1];
+      const telegramId = ctx.from?.id;
+      if (!telegramId) {
+        await ctx.reply("Cannot identify your Telegram account.");
+        return;
+      }
+
+      // Set expires_at to 30 minutes from now.
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+      const db = supabaseService();
+      const { data, error } = await db
+        .from("purchase_orders")
+        .update({
+          status: "open",
+          approved_by: telegramId,
+          approved_at: new Date().toISOString(),
+          expires_at: expiresAt,
+        })
+        .eq("id", poId)
+        .eq("status", "draft") // Optimistic guard: only approve from draft state.
+        .select("id, retailer_domain, max_amount_cents")
+        .maybeSingle();
+
+      if (error || !data) {
+        await ctx.reply(
+          error
+            ? `Error approving PO: ${error.message}`
+            : "PO not found or already processed."
+        );
+        return;
+      }
+
+      const approved = data as { id: string; retailer_domain: string | null; max_amount_cents: number };
+      const maxDollars = (approved.max_amount_cents / 100).toFixed(2);
+      await ctx.reply(
+        `PO approved. The agent may now spend up to $${maxDollars} at ${approved.retailer_domain ?? "the retailer"}. Expires in 30 min.`
+      );
+    });
+
+    // Decline callback
+    bot.callbackQuery(/^po_decline:(.+)$/, async (ctx) => {
+      if (!(await guardAllowlist(ctx, entry.name, workRole))) {
+        await ctx.answerCallbackQuery("Access denied.");
+        return;
+      }
+      await ctx.answerCallbackQuery();
+
+      const poId = ctx.match[1];
+      const db = supabaseService();
+      const { data, error } = await db
+        .from("purchase_orders")
+        .update({ status: "cancelled" })
+        .eq("id", poId)
+        .eq("status", "draft")
+        .select("id")
+        .maybeSingle();
+
+      if (error || !data) {
+        await ctx.reply(
+          error ? `Error declining PO: ${error.message}` : "PO not found or already processed."
+        );
+        return;
+      }
+
+      await ctx.reply("PO declined and cancelled.");
+    });
+  }
 
   // Shoe tapped → show its eligible sizes as a toggle keyboard.
   bot.callbackQuery(/^pick:(.+)$/, async (ctx) => {
