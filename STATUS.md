@@ -1,8 +1,8 @@
 # Sole Supply — STATUS
 
-**Version:** 13
-**Last updated:** 2026-06-03 (pm-sole-supply — PR #16 feat/per-size-status-p1: shoe_sizes table + per-size logistics pipeline Phase 1)
-**State:** SEVEN PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots), #11 PR B (feat/telegram-bots-work), #12 PR C (feat/ops-feed, stacked on PR B), #13 (feat/berebaso-rebrand, stacked on PR C), #15 (feat/size-availability, branched from main 408823a — independent), #16 (feat/per-size-status-p1, branched from origin/main 2f8d8f3 — independent). Merge order for bots stack: #10 → #11 → #12 → #13; PR #9, PR #15, and PR #16 can merge independently. PR #16 requires user to run migration 0005 in Supabase after merge.
+**Version:** 16
+**Last updated:** 2026-06-04 (pm-sole-supply — PR #21 feat/purchaser-role: Phase 1 purchaser role + max-2 cap + bot re-gate)
+**State:** TEN PRs OPEN: #9 (feat/stale-checker, blocked on Vercel env vars), #10 PR A (feat/telegram-bots), #11 PR B (feat/telegram-bots-work), #12 PR C (feat/ops-feed, stacked on PR B), #13 (feat/berebaso-rebrand, stacked on PR C), #15 (feat/size-availability, branched from main 408823a — independent), #16 (feat/per-size-status-p1, branched from origin/main 2f8d8f3 — independent), #18 (feat/per-size-status-p2, stacked on #16 — merge #16 first), #20 (feat/payments-poc, branched from origin/main 94c49c0 — independent), #21 (feat/purchaser-role, branched from origin/main 94c49c0 — independent). Merge order for bots stack: #10 → #11 → #12 → #13; PR #9 and #15 independent; PR #16 then PR #18 (per-size pipeline); PR #20 independent (requires 0006 migration + Chapa env vars); PR #21 independent (requires 0007 migration). PR #16 requires user to run migration 0005 in Supabase after merge.
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
 
@@ -154,9 +154,33 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 4. Verify: `select count(*) from information_schema.columns where table_name='shoes' and column_name='logistics_status';` returns 0.
 
 **What's deferred to Phase 2 (separate PR):**
-- Per-size drill-down multi-select in work bots (purchaser, arrived, delivery).
-- Incart bot per-size prompting after shoe creation.
-- Ops bot `/logistics` per-size selection (currently advances all eligible sizes).
+- Now delivered in PR #18.
+
+---
+
+### PR #18 — `feat/per-size-status-p2` — Per-size drill-down bot UX (Phase 2)
+**URL:** https://github.com/NahomX/Sole-supply2/pull/18
+**Branch:** `feat/per-size-status-p2` (branched from `feat/per-size-status-p1`)
+**Stacked on PR #16** — merge PR #16 first, then this one.
+
+**What's in it:**
+- `lib/bots/handlers.ts` (one file changed, +393/-84 lines, commit `fd928b8`):
+  - **Work bots (purchaser/arrived/delivery):** `/list` shows shoes with ≥1 size at `fromStatus` (one button per shoe, `pick:{shoeId}`). Tap shoe → size toggle keyboard (all eligible sizes, `sz:{shoeId}:{usSize}`). Each tap flips a `✓` prefix in the live keyboard via `editMessageReplyMarkup` — state is encoded IN the keyboard buttons, no grammY session store, serverless-safe. "Advance selected" (`go:{shoeId}`) reads ✓-marked buttons and calls `setSizeStatus` per size. "Advance all" (`szall:{shoeId}`) calls `advanceAllSizes`.
+  - **In-cart bot:** after `createShoeFromUrl` succeeds, presents full `SIZE_GRID` as a toggle keyboard. `ic_done:{shoeId}` calls `addSize` + `setSizeStatus(in_cart)` for each selected size. `ic_skip:{shoeId}` dismisses without adding sizes.
+  - **Ops bot `/logistics`:** full drill-down — `ops_log_pick:{shoeId}` → `ops_log_sz:{shoeId}:{usSize}` → `ops_log_st:{shoeId}:{usSize}:{status}` (or `"null"` to clear). Replaces interim "advance all" from Phase 1.
+  - **`guardAllowlist` re-checked on every callback query**, not just commands.
+  - **Customer bot unchanged.**
+  - `InlineKeyboardButton` type imported from `@grammyjs/types` (not re-exported directly from `grammy`).
+
+**Callback data scheme (all ≤ 64 bytes):**
+- Work bots: `pick:{shoeId}`, `sz:{shoeId}:{usSize}`, `go:{shoeId}`, `szall:{shoeId}`
+- In-cart: `ic_sz:{shoeId}:{usSize}`, `ic_done:{shoeId}`, `ic_skip:{shoeId}`
+- Ops: `ops_log_pick:{shoeId}`, `ops_log_sz:{shoeId}:{usSize}`, `ops_log_st:{shoeId}:{usSize}:{status}`
+- Sales (unchanged): `ops_sales_pick:{shoeId}`, `ops_sales_set:{shoeId}:{status}`
+
+**Build gate:** `npm ci` + `npm run lint` + `next build` all green (verified in throwaway worktree, commit `fd928b8`). Worktree cleaned up.
+
+**Note:** Live bot testing requires owner to set tokens/webhooks (not yet configured) — verify via build + logic review, not a live run.
 
 ---
 
@@ -178,6 +202,62 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 - Visual QA on a real device (phone, 375 px viewport): verify chips wrap cleanly on 2-up card layout and are legibly sized.
 - Functional test: shoe with `sizes = "9, 10, 11"` → chips 9, 10, 11 solid; rest greyed. Shoe with `sizes = "8-12"` → 8–12 solid. Shoe with `sizes = null` → no strip. Shoe with garbled text → TBA notice.
 - Screen reader spot-check: sold-out chip should announce "US X / EU Y — sold out".
+
+---
+
+### PR #20 — `feat/payments-poc` — Chapa payment integration (admin-only test-mode POC)
+**URL:** https://github.com/NahomX/Sole-supply2/pull/20
+**Branch:** `feat/payments-poc` (branched from `origin/main` at `94c49c0`)
+**Independent** — not stacked on any other open PR; can merge any time after owner sets up Chapa.
+
+**What's in it:**
+- `supabase/migrations/0006_payments.sql` (new): `payments` table. Columns: `id uuid PK`, `shoe_id uuid null FK→shoes`, `size text`, `amount numeric`, `currency text default 'ETB'`, `tx_ref text unique`, `status text check(pending/paid/failed) default pending`, `chapa_ref text`, `customer_email text`, `created_at`, `updated_at`. RLS on; NO public/authenticated policies — service-role only. `updated_at` auto-maintained via trigger. Idempotent.
+- `lib/payments.ts` (new, server-only): `initChapa({shoeId,size,amount,email})` (insert pending row + unique tx_ref `ss-<ts>-<rand>` → POST Chapa initialize → return `checkout_url`); `verifyChapa(tx_ref)` (GET Chapa verify — source of truth → update paid/failed → ops-feed post "💳 test payment {tx_ref} — {status}"); `verifyChapaWebhookSig(sigHeader,rawBody)` (HMAC-SHA256 fail-closed). Uses `supabaseService()` + `sendTelegramMessage`. Mirrors `lib/shoes.ts`/`lib/telegram.ts` patterns.
+- `app/api/admin/test-payment/route.ts` (new, POST): `PAYMENTS_POC_ENABLED==="true"` flag check + `requireRole(["admin"])` → `initChapa` → `{checkout_url, tx_ref}`.
+- `app/api/webhooks/chapa/route.ts` (new, POST): read raw body → `verifyChapaWebhookSig()` (fail-closed, 403 on bad/missing sig) → `verifyChapa(tx_ref)` → 200. Never trusts webhook body status.
+- `lib/supabase.ts`: added `PaymentStatus` + `Payment` types.
+- `app/admin/page.tsx`: loads `recentPayments` (last 20) for admin when `paymentsEnabled`; passes to `AdminDashboard`.
+- `app/admin/AdminDashboard.tsx`: new admin-only "Payments (test)" tab (hidden unless `paymentsEnabled`): form (shoe/size/amount ETB/email → POST `/api/admin/test-payment` → open `checkout_url` in new tab) + read-only recent-payments table (status badge, tx_ref, amount, email, size, date).
+- `.env.example`: `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`, `PAYMENTS_POC_ENABLED` documented (all server-only, no `NEXT_PUBLIC_`).
+
+**Build gate:** `npm ci` + `npm run lint` + `next build` all green (verified in throwaway worktree, commit `20eebd6`). Worktree cleaned up.
+
+**USER must do before feature goes live:**
+1. Create a Chapa account → get test secret key (`CHASECK_TEST-…`) and webhook secret.
+2. Set in Vercel: `CHAPA_SECRET_KEY`, `CHAPA_WEBHOOK_SECRET`, `PAYMENTS_POC_ENABLED=true`.
+3. Run `supabase/migrations/0006_payments.sql` in Supabase SQL Editor.
+4. Register webhook URL in Chapa dashboard: `https://sole-supply2.vercel.app/api/webhooks/chapa`.
+5. Merge PR #20.
+
+**Negative checks (test after deploy):**
+- `POST /api/webhooks/chapa` with bad/missing `Chapa-Signature` → 403.
+- `POST /api/admin/test-payment` as non-admin → 403.
+- `POST /api/admin/test-payment` with `PAYMENTS_POC_ENABLED` unset → 404.
+- `select * from payments` via Supabase anon key → RLS blocks, 0 rows.
+- Public storefront `/` and `ShoeCard` show no payment UI.
+
+---
+
+### PR #21 — `feat/purchaser-role` — Purchaser role + max-2 cap + bot re-gate (Phase 1)
+**URL:** https://github.com/NahomX/Sole-supply2/pull/21
+**Branch:** `feat/purchaser-role` (branched from `origin/main` at `94c49c0`)
+**Independent** — not stacked on any other open PR; can merge any time.
+
+**What's in it:**
+- `supabase/migrations/0007_purchaser_role.sql` (new): (1) idempotently drops and re-adds the `telegram_users.role` CHECK constraint to include `'purchaser'` (now `('admin','shipper','purchaser')`); (2) CREATE OR REPLACE function `check_purchaser_cap()` + BEFORE INSERT OR UPDATE trigger `enforce_purchaser_cap` that raises an exception if a 3rd purchaser row would be created. Idempotent — safe to re-run.
+- `lib/bots/registry.ts`: `BotRole` union gains `"purchaser"`; purchaser bot entry role changed from `"shipper"` to `"purchaser"`. `incart`/`arrived`/`delivery` remain `"shipper"`.
+- `lib/bots/auth.ts`: `TelegramUser.role` type gains `'purchaser'`; role hierarchy updated — `admin` satisfies any requirement, `purchaser` satisfies only `"purchaser"`, `shipper` satisfies only `"shipper"`.
+- `lib/bots/handlers.ts`: `guardAllowlist` signature extended to accept `"purchaser" | "shipper" | "admin"`; `registerWorkBot` derives required role from `entry.role` (cast as `workRole`) so each work bot enforces its own registry role — purchaser bot now requires `"purchaser"`, arrived/delivery keep `"shipper"`. All per-callback re-checks preserved. Interim "advance all sizes" behavior unchanged.
+- `.env.example`: no new vars — `PURCHASER_BOT_TOKEN` already documented.
+
+**Build gate:** `npm ci` + `npm run lint` + `next build` all green (verified in throwaway worktree, commit `6a53d33`). Worktree cleaned up.
+
+**USER must do before feature goes live:**
+1. Run `supabase/migrations/0007_purchaser_role.sql` in Supabase SQL Editor.
+2. Merge PR #21.
+3. Add a purchaser: `INSERT INTO telegram_users (telegram_id, role, label) VALUES (<TELEGRAM_ID>, 'purchaser', 'Name');` (max 2; trigger rejects a 3rd).
+4. Verify: attempt a 3rd purchaser insert → DB raises exception "Maximum of 2 purchasers allowed."
+5. Verify: purchaser-role Telegram user can use the purchaser bot; shipper-role user cannot.
 
 ---
 
@@ -245,6 +325,18 @@ Once all three vars are set and Cron confirmed, merge PR #9.
 
 Note: group chat IDs are negative integers. Supergroup IDs begin with `-100`. If `getUpdates` is empty, send another message to the group first.
 
+### For PR #20 (Chapa payments POC):
+
+| Variable | What it is | How to get it |
+|---|---|---|
+| `CHAPA_SECRET_KEY` | Chapa test secret key | Chapa dashboard → Settings → API Keys (use CHASECK_TEST-… for test mode) |
+| `CHAPA_WEBHOOK_SECRET` | HMAC-SHA256 webhook signing secret | Chapa dashboard → Settings → Webhooks → Secret (or generate: `openssl rand -hex 32`) |
+| `PAYMENTS_POC_ENABLED` | Feature flag — must be `"true"` to enable the POC | Set to `true` in Vercel env vars |
+
+**Webhook URL to register in Chapa dashboard:** `https://sole-supply2.vercel.app/api/webhooks/chapa`
+
+All three vars are server-only — no `NEXT_PUBLIC_` prefix. Feature is disabled unless `PAYMENTS_POC_ENABLED=true`.
+
 ### For PR #9 (stale-digest cron):
 
 | Variable | What it is | How to get it |
@@ -278,6 +370,9 @@ Note: `package-lock.json` + `.eslintrc.json` were generated and committed as par
 
 ## Changelog
 
+- v16 — 2026-06-04 — pm-sole-supply — PR #21 (feat/purchaser-role, commit 6a53d33, branched from origin/main 94c49c0). 4 files (+94/-13). Phase 1 purchaser role: 0007_purchaser_role.sql (extend telegram_users.role CHECK to include 'purchaser'; enforce_purchaser_cap trigger — MAX 2 purchasers, idempotent); lib/bots/registry.ts (BotRole += "purchaser"; purchaser bot entry role "shipper"→"purchaser"); lib/bots/auth.ts (TelegramUser.role += 'purchaser'; role hierarchy: admin satisfies any, purchaser satisfies only purchaser, shipper satisfies only shipper); lib/bots/handlers.ts (guardAllowlist signature += "purchaser"; registerWorkBot derives workRole from entry.role — purchaser bot enforces "purchaser", arrived/delivery keep "shipper"; all per-callback re-checks preserved). No money, no Stripe, no agent. Build gate green (npm ci + lint + next build in throwaway worktree). PR #21 open. USER must run 0007 migration + insert purchaser rows. Compare-and-swap v15→v16 (N_start=N_disk=15).
+- v15 — 2026-06-03 — pm-sole-supply — PR #20 (feat/payments-poc, commit 20eebd6, branched from origin/main 94c49c0). 8 files (+728/-2 lines). Chapa admin-only test-mode payment POC: 0006_payments.sql (payments table, RLS on, service-role only, updated_at trigger, idempotent); lib/payments.ts (initChapa, verifyChapa, verifyChapaWebhookSig — HMAC-SHA256 fail-closed); app/api/admin/test-payment/route.ts (POST, double-gated: PAYMENTS_POC_ENABLED + admin role); app/api/webhooks/chapa/route.ts (POST, sig verify fail-closed → re-verify via Chapa before marking paid); lib/supabase.ts (+PaymentStatus+Payment types); app/admin/page.tsx (+recentPayments load); app/admin/AdminDashboard.tsx (+Payments tab, form, recent-payments table); .env.example (+3 server-only Chapa vars). Build gate green (npm ci + lint + next build in throwaway worktree). PR #20 open, independent. USER must: run 0006 migration + set 3 Chapa env vars + register webhook URL in Chapa dashboard. Compare-and-swap v14→v15 (N_start=N_disk=14).
+- v14 — 2026-06-04 — pm-sole-supply — PR #18 (feat/per-size-status-p2, commit fd928b8, stacked on feat/per-size-status-p1). 1 file: lib/bots/handlers.ts (+393/-84). Phase 2 per-size bot UX: work bots get drill-down multi-select (pick:{shoeId} → sz:{shoeId}:{usSize} toggle keyboard → go:{shoeId} advance selected or szall:{shoeId} advance all); stateless keyboard design encodes selection as ✓ prefix in button text, no session store, serverless-safe. In-cart bot prompts size selection after shoe creation (ic_sz/ic_done/ic_skip). Ops bot /logistics is full drill-down (ops_log_pick → ops_log_sz → ops_log_st incl. null/clear). guardAllowlist checked on all commands + callbacks. Customer bot unchanged. @grammyjs/types used for InlineKeyboardButton. Build gate green (npm ci + lint + next build in throwaway worktree). PR #18 open. Stacks on PR #16 — merge order: #16 then #18. Compare-and-swap v13→v14 (N_start=N_disk=13).
 - v13 — 2026-06-03 — pm-sole-supply — PR #16 (feat/per-size-status-p1, commit 08356aa, branched from main 2f8d8f3). 13 files. New shoe_sizes table (0005 migration — USER must run). Per-size logistics pipeline: lib/supabase.ts (ShoeSize type, logistics_status dropped from Shoe), lib/shoes.ts (per-size helpers: getShoeSizes, setSizeStatus, addSize, removeSize, advanceAllSizes, syncSizesFromText; list helpers join shoe_sizes; setLogisticsStatus removed), lib/labels.ts (sizeLabel, shoeSection, customerLabel refactored), lib/sizes.ts (sizeGridFromSizes + SizeCustomerState), lib/staleness.ts (per-size stale rule), components/ShoeCard.tsx (SizeStrip from DB rows: green/gold/muted/greyed+struck), app/page.tsx (join + shoeSection), app/admin/page.tsx (join), app/admin/AdminDashboard.tsx (per-size chip editor), app/api/shoes/[id]/route.ts (logistics branch dropped), app/api/shoes/[id]/sizes/route.ts (new GET/POST/DELETE/PATCH). Bots interim: advanceAllSizes. Build gate green. PR #16 open. Feature live only after user runs 0005.
 - v12 — 2026-06-02 — pm-sole-supply — PR #15 legibility fix (commit 7738e7e). SizeStrip chip styling bumped: US text-[9px]→text-[11px], EU text-[8px]→text-[9px], available EU text-neutral-400→text-neutral-500, sold-out US container text-neutral-300→text-neutral-400, sold-out EU text-neutral-200→text-neutral-300, chip padding px-1→px-1.5. All other SizeStrip behavior (flex-wrap gap-0.5, bilingual label, role/aria, TBA states) preserved. Build gate green (npm ci + lint + next build in throwaway worktree). Pushed to feat/size-availability; PR #15 updated in place. Compare-and-swap v11→v12 (N_start=N_disk=11).
 - v11 — 2026-06-02 — pm-sole-supply — PR #15 (feat/size-availability, branched from main 408823a, commit 3aa4959). New lib/sizes.ts: US 7–13 ↔ EU table + parseAvailableSizes (comma/space/slash/range/EU-token) + sizeGrid. ShoeCard: SizeStrip — compact flex-wrap chips, available=solid, unavailable=greyed+strikethrough+aria; bilingual "Sizes · መጠን" label; null/blank sizes → omit strip; garbled → "Sizes TBA / መጠን በቅርቡ". No schema change, no new env vars. Build gate green. PR #15 open, independent (merges any time). Compare-and-swap v10→v11 (N_start=N_disk=10).
