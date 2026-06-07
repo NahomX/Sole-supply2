@@ -9,6 +9,7 @@ import type {
   Profile,
   Role,
   LogisticsStatus,
+  ShoeEvent,
 } from "@/lib/supabase";
 import { SIZE_GRID } from "@/lib/sizes";
 
@@ -40,6 +41,7 @@ export function AdminDashboard({
   shoes,
   profiles,
   interestsByShoe,
+  eventsByShoe = {},
   staleShoeIds = [],
   staleAgeDaysById = {},
 }: {
@@ -48,6 +50,7 @@ export function AdminDashboard({
   shoes: Shoe[];
   profiles: Profile[];
   interestsByShoe: Record<string, InterestWithEmail[]>;
+  eventsByShoe?: Record<string, ShoeEvent[]>;
   /** IDs of shoes that meet the stale criteria (upcoming + no logistics progress + >7d) */
   staleShoeIds?: string[];
   /** Days-old for each stale shoe ID */
@@ -62,6 +65,10 @@ export function AdminDashboard({
 
   const staleSet = new Set(staleShoeIds);
   const staleCount = staleShoeIds.length;
+
+  // Filter state — "shoes" tab only
+  const [salesStatusFilter, setSalesStatusFilter] = useState<ShoeStatus | "">("");
+  const [logisticsStatusFilter, setLogisticsStatusFilter] = useState<LogisticsStatus | "">("");
 
   async function call(path: string, init: RequestInit) {
     setLoading(true);
@@ -153,11 +160,24 @@ export function AdminDashboard({
       ]
     : [["shoes", "Shoes"]];
 
-  // When the stale filter is active, only show stale rows in the shoes list.
+  // Apply filters to the shoes array (client-side, AND logic).
+  const filteredShoes = shoes.filter((s) => {
+    if (salesStatusFilter !== "" && s.status !== salesStatusFilter) return false;
+    if (logisticsStatusFilter !== "") {
+      const sizes = s.shoe_sizes ?? [];
+      const hasMatchingSize = sizes.some((sz) => sz.logistics_status === logisticsStatusFilter);
+      if (!hasMatchingSize) return false;
+    }
+    return true;
+  });
+
+  const hasActiveFilters = salesStatusFilter !== "" || logisticsStatusFilter !== "";
+
+  // When the stale filter is active, further restrict to stale rows (shoes tab only).
   const visibleShoes =
     staleFilterActive && tab === "shoes"
-      ? shoes.filter((s) => staleSet.has(s.id))
-      : shoes;
+      ? filteredShoes.filter((s) => staleSet.has(s.id))
+      : filteredShoes;
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-10">
@@ -213,6 +233,76 @@ export function AdminDashboard({
 
       {tab === "shoes" && (
         <div className="space-y-4">
+          {/* Filter bar */}
+          <div className="flex flex-wrap items-center gap-3 p-3 bg-neutral-50 border border-neutral-200 rounded">
+            <div className="flex items-center gap-1.5">
+              <label
+                htmlFor="filter-sales"
+                className="text-xs text-neutral-500 whitespace-nowrap"
+              >
+                Sales status
+              </label>
+              <select
+                id="filter-sales"
+                value={salesStatusFilter}
+                onChange={(e) =>
+                  setSalesStatusFilter(e.target.value as ShoeStatus | "")
+                }
+                className="border border-neutral-300 rounded px-2 py-1 text-xs bg-white"
+              >
+                <option value="">All</option>
+                {STATUSES.map((st) => (
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <label
+                htmlFor="filter-logistics"
+                className="text-xs text-neutral-500 whitespace-nowrap"
+              >
+                Logistics status
+              </label>
+              <select
+                id="filter-logistics"
+                value={logisticsStatusFilter}
+                onChange={(e) =>
+                  setLogisticsStatusFilter(e.target.value as LogisticsStatus | "")
+                }
+                className="border border-neutral-300 rounded px-2 py-1 text-xs bg-white"
+              >
+                <option value="">All</option>
+                {LOGISTICS.map((ls) => (
+                  <option key={ls} value={ls}>
+                    {ls}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSalesStatusFilter("");
+                  setLogisticsStatusFilter("");
+                }}
+                className="text-xs text-neutral-500 hover:text-neutral-800 underline ml-auto"
+              >
+                Clear filters
+              </button>
+            )}
+
+            {hasActiveFilters && (
+              <span className="text-xs text-neutral-400">
+                {filteredShoes.length} of {shoes.length}
+              </span>
+            )}
+          </div>
+
           {visibleShoes.map((s) => (
             <ShoeRow
               key={s.id}
@@ -220,6 +310,7 @@ export function AdminDashboard({
               isAdmin={isAdmin}
               loading={loading}
               interestCount={interestsByShoe[s.id]?.length ?? 0}
+              events={eventsByShoe[s.id] ?? []}
               onUpdateStatus={(st) => updateShoe(s.id, { status: st })}
               onSetSizeStatus={(usSize, ls) => setSizeStatus(s.id, usSize, ls)}
               onAddSize={isAdmin ? (usSize) => addSizeToShoe(s.id, usSize) : undefined}
@@ -236,6 +327,8 @@ export function AdminDashboard({
             <div className="border border-neutral-200 rounded p-6 text-center text-neutral-500 text-sm">
               {staleFilterActive
                 ? "No stale shoes — everything is moving."
+                : hasActiveFilters
+                ? "No shoes match the selected filters."
                 : "No shoes yet."}
             </div>
           )}
@@ -394,12 +487,13 @@ export function AdminDashboard({
 }
 
 // ---------------------------------------------------------------------------
-// ShoeRow — per-shoe card with per-size logistics editor
+// ShoeRow — per-shoe card with per-size logistics editor + event timeline
 // ---------------------------------------------------------------------------
 
 /**
  * Renders one shoe as a card (replacing the old table row).
  * The logistics section is now a per-size chip grid, not a single dropdown.
+ * The timeline section shows recent shoe_events rows (collapsible).
  *
  * Shippers: can change the logistics_status of any existing size chip.
  * Admins: additionally can add/remove sizes from the SIZE_GRID.
@@ -409,6 +503,7 @@ function ShoeRow({
   isAdmin,
   loading,
   interestCount,
+  events,
   onUpdateStatus,
   onSetSizeStatus,
   onAddSize,
@@ -420,6 +515,7 @@ function ShoeRow({
   isAdmin: boolean;
   loading: boolean;
   interestCount: number;
+  events: ShoeEvent[];
   onUpdateStatus: (st: ShoeStatus) => void;
   onSetSizeStatus: (usSize: string, ls: LogisticsStatus | null) => void;
   onAddSize?: (usSize: string) => void;
@@ -430,6 +526,7 @@ function ShoeRow({
 }) {
   const sizes: ShoeSize[] = shoe.shoe_sizes ?? [];
   const sizeByUs = new Map(sizes.map((sz) => [sz.us_size, sz]));
+  const [timelineOpen, setTimelineOpen] = useState(false);
 
   // Available sizes from SIZE_GRID that aren't yet added to this shoe
   const addableSizes = SIZE_GRID.map((e) => e.us).filter((us) => !sizeByUs.has(us));
@@ -569,6 +666,105 @@ function ShoeRow({
           </div>
         )}
       </div>
+
+      {/* Event timeline — collapsible, shown when events are available */}
+      {events.length > 0 && (
+        <div className="border-t border-neutral-100 pt-3 mt-1">
+          <button
+            type="button"
+            onClick={() => setTimelineOpen((o) => !o)}
+            className="flex items-center gap-1 text-[11px] uppercase tracking-wider text-neutral-500 hover:text-neutral-700"
+            aria-expanded={timelineOpen}
+          >
+            <span>Timeline</span>
+            <span className="text-neutral-400 ml-1">
+              ({events.length})
+            </span>
+            <span className="ml-1 text-neutral-400">
+              {timelineOpen ? "▲" : "▼"}
+            </span>
+          </button>
+
+          {timelineOpen && (
+            <div className="mt-2 space-y-0">
+              {events.map((ev) => (
+                <EventRow key={ev.id} event={ev} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EventRow — one row in the per-shoe event timeline
+// ---------------------------------------------------------------------------
+
+function eventIcon(type: ShoeEvent["event_type"]): string {
+  switch (type) {
+    case "shoe_created":
+      return "■";
+    case "sales_status_change":
+      return "●";
+    case "logistics_status_change":
+      return "→";
+  }
+}
+
+function eventLabel(ev: ShoeEvent): string {
+  switch (ev.event_type) {
+    case "shoe_created":
+      return `Created (${ev.to_value ?? "upcoming"})`;
+    case "sales_status_change":
+      return `Sales: ${ev.from_value ?? "—"} → ${ev.to_value ?? "—"}`;
+    case "logistics_status_change":
+      return ev.us_size
+        ? `US ${ev.us_size}: ${ev.from_value ?? "—"} → ${ev.to_value ?? "—"}`
+        : `Logistics: ${ev.from_value ?? "—"} → ${ev.to_value ?? "—"}`;
+  }
+}
+
+function formatEventTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function EventRow({ event }: { event: ShoeEvent }) {
+  const actorSource =
+    event.actor || event.source
+      ? [event.actor, event.source ? `via ${event.source}` : null]
+          .filter(Boolean)
+          .join(" ")
+      : "(system)";
+
+  return (
+    <div className="flex items-start gap-2 py-1.5 border-b border-neutral-50 last:border-0">
+      {/* Icon */}
+      <span className="text-neutral-400 text-[11px] w-4 shrink-0 mt-0.5 text-center">
+        {eventIcon(event.event_type)}
+      </span>
+      {/* Timestamp */}
+      <span className="text-[10px] text-neutral-400 whitespace-nowrap shrink-0 mt-0.5 w-28">
+        {formatEventTime(event.created_at)}
+      </span>
+      {/* Label */}
+      <span className="text-xs text-neutral-700 flex-1 min-w-0">
+        {eventLabel(event)}
+      </span>
+      {/* Actor/source */}
+      <span className="text-[10px] text-neutral-400 whitespace-nowrap shrink-0 max-w-[120px] truncate">
+        {actorSource}
+      </span>
     </div>
   );
 }

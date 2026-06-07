@@ -55,6 +55,24 @@ export type Interest = {
   created_at: string;
 };
 
+/** One row in shoe_events — timestamped audit log for all shoe status transitions. */
+export type ShoeEvent = {
+  id: string;
+  shoe_id: string;
+  /** US size string (e.g. "9", "10.5") for per-size events; null for shoe-level events. */
+  us_size: string | null;
+  event_type: "shoe_created" | "sales_status_change" | "logistics_status_change";
+  /** Previous value (null for creation events). */
+  from_value: string | null;
+  /** New value. */
+  to_value: string | null;
+  /** Human-readable actor label (email or Telegram username). */
+  actor: string | null;
+  /** Source channel: 'web', 'incart', 'purchaser', 'work', 'agent', etc. */
+  source: string | null;
+  created_at: string;
+};
+
 // Browser client — used from client components.
 let browser: SupabaseClient | null = null;
 export function supabaseBrowser(): SupabaseClient {

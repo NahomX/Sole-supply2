@@ -55,6 +55,39 @@ function buildFeedSuffix(meta?: FeedMeta): string {
 }
 
 // ---------------------------------------------------------------------------
+// insertEvent — fire-and-forget audit log write to shoe_events.
+// Wrapped in try/catch so a DB hiccup never breaks the status transition.
+// Only fires after migration 0010_shoe_events.sql has been run by the user.
+// ---------------------------------------------------------------------------
+
+type EventType = "shoe_created" | "sales_status_change" | "logistics_status_change";
+
+async function insertEvent(opts: {
+  shoeId: string;
+  usSize?: string | null;
+  eventType: EventType;
+  fromValue: string | null;
+  toValue: string | null;
+  meta?: FeedMeta;
+}): Promise<void> {
+  try {
+    const db = supabaseService();
+    await db.from("shoe_events").insert({
+      shoe_id: opts.shoeId,
+      us_size: opts.usSize ?? null,
+      event_type: opts.eventType,
+      from_value: opts.fromValue,
+      to_value: opts.toValue,
+      actor: opts.meta?.actorLabel ?? null,
+      source: opts.meta?.source ?? null,
+    });
+  } catch {
+    // Never propagate — an event-log failure must never break a status transition.
+    console.error("[shoe-events] failed to insert event");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Canonical enum arrays — single source of truth used here + re-exported for
 // API routes and bot handlers. DB check constraint and lib/supabase.ts types
 // must stay in sync with these.
@@ -166,6 +199,15 @@ export async function createShoeFromUrl(
     );
   }
 
+  // Audit event: record shoe creation.
+  await insertEvent({
+    shoeId: shoe.id,
+    eventType: "shoe_created",
+    fromValue: null,
+    toValue: shoe.status,
+    meta,
+  });
+
   return { shoe, error: null };
 }
 
@@ -208,11 +250,19 @@ export async function setSalesStatus(
   if (error) return { shoe: null, error: error.message };
   const shoe = data as Shoe;
 
-  // Only post when the value actually changed.
+  // Only post / record when the value actually changed.
   if (before?.status !== to) {
     await postOpsFeed(
       `\u{1F45F} ${shoe.title} \u{2192} ${to}${buildFeedSuffix(meta)}`
     );
+    // Audit event: record sales status transition.
+    await insertEvent({
+      shoeId: id,
+      eventType: "sales_status_change",
+      fromValue: before?.status ?? null,
+      toValue: to,
+      meta,
+    });
   }
 
   return { shoe, error: null };
@@ -277,13 +327,22 @@ export async function setSizeStatus(
   if (error) return { size: null, error: error.message };
   const size = data as ShoeSize;
 
-  // Only post when the value actually changed.
+  // Only post / record when the value actually changed.
   if (prev !== to) {
     const title = (shoeQ.data as { title: string } | null)?.title ?? shoeId;
     const label = to ?? "cleared";
     await postOpsFeed(
       `\u{1F45F} ${title} \u{2014} US ${usSize} \u{2192} ${label}${buildFeedSuffix(meta)}`
     );
+    // Audit event: record per-size logistics transition.
+    await insertEvent({
+      shoeId,
+      usSize,
+      eventType: "logistics_status_change",
+      fromValue: prev ?? "cleared",
+      toValue: to ?? "cleared",
+      meta,
+    });
   }
 
   return { size, error: null };
@@ -394,6 +453,25 @@ export async function advanceAllSizes(
   await postOpsFeed(
     `\u{1F45F} ${title} \u{2014} ${sizeList} \u{2192} ${toStatus}${buildFeedSuffix(meta)}`
   );
+
+  // Audit events: batch insert one event per advanced size.
+  if (eligible.length > 0) {
+    try {
+      const db = supabaseService();
+      const eventRows = eligible.map((sz) => ({
+        shoe_id: shoeId,
+        us_size: sz.us_size,
+        event_type: "logistics_status_change" as EventType,
+        from_value: fromStatus ?? "cleared",
+        to_value: toStatus,
+        actor: meta?.actorLabel ?? null,
+        source: meta?.source ?? null,
+      }));
+      await db.from("shoe_events").insert(eventRows);
+    } catch {
+      console.error("[shoe-events] failed to insert advanceAllSizes events");
+    }
+  }
 
   return { count: eligible.length, error: null };
 }
