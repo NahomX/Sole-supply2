@@ -158,11 +158,7 @@ export function ShoeCard({
           Falls back to free-text parsing if shoe_sizes is absent or empty
           (pre-migration shoes or shoes not yet given sizes in the editor).
         */}
-        <SizeStrip
-          shoeSizes={shoe.shoe_sizes}
-          sizesText={shoe.sizes}
-          inStock={shoe.status === "available"}
-        />
+        <SizeStrip shoeSizes={shoe.shoe_sizes} sizesText={shoe.sizes} />
 
         {mode === "info" && (
           <ul className="text-xs space-y-1.5 border-t border-neutral-100 pt-2">
@@ -306,17 +302,9 @@ export function ShoeCard({
 function SizeStrip({
   shoeSizes,
   sizesText,
-  inStock = false,
 }: {
   shoeSizes: ShoeSize[] | undefined;
   sizesText: string | null;
-  /**
-   * True when the shoe's sales status is "available" — i.e. the whole item is
-   * in stock now. In that case listed sizes render as in-stock (green) rather
-   * than greyed/coming-soon, keeping the chips consistent with the "In stock"
-   * badge. Per-size logistics granularity is preserved for upcoming shoes.
-   */
-  inStock?: boolean;
 }) {
   // Prefer per-size DB rows when available.
   const hasSizeRows = shoeSizes && shoeSizes.length > 0;
@@ -359,14 +347,7 @@ function SizeStrip({
           aria-label="Size availability"
         >
           {grid.map((entry) => {
-            const rawState = entry.customerState ?? "sold-out";
-            // When the shoe is in stock (sales status "available"), promote its
-            // listed sizes to in-stock so they don't render greyed/coming-soon.
-            // Genuinely sold-out sizes (delivered/absent) stay sold-out.
-            const state =
-              inStock && entry.available && rawState !== "sold-out"
-                ? "in-stock"
-                : rawState;
+            const state = entry.customerState ?? "sold-out";
             const isSoldOut = !entry.available || state === "sold-out";
             const ariaLabel = isSoldOut
               ? `US ${entry.us} / EU ${entry.eu} — sold out`
@@ -485,14 +466,9 @@ function SizeStrip({
       >
         {grid.map((entry) => {
           const isAvailable = available.has(entry.us);
-          // When the shoe is in stock, listed sizes render in-stock (green)
-          // instead of greyed/neutral — consistent with the "In stock" badge.
-          const showInStock = inStock && isAvailable;
-          const ariaLabel = !isAvailable
-            ? `US ${entry.us} / EU ${entry.eu} — sold out`
-            : showInStock
-            ? `US ${entry.us} / EU ${entry.eu} — in stock`
-            : `US ${entry.us} / EU ${entry.eu}`;
+          const ariaLabel = isAvailable
+            ? `US ${entry.us} / EU ${entry.eu}`
+            : `US ${entry.us} / EU ${entry.eu} — sold out`;
           return (
             <span
               key={entry.us}
@@ -501,9 +477,7 @@ function SizeStrip({
               aria-label={ariaLabel}
               className={[
                 "inline-flex flex-col items-center leading-none rounded px-1.5 py-0.5",
-                showInStock
-                  ? "bg-[#1F7A52] text-white"
-                  : isAvailable
+                isAvailable
                   ? "bg-neutral-100 text-neutral-700"
                   : "bg-neutral-50 text-neutral-400",
               ].join(" ")}
@@ -519,11 +493,7 @@ function SizeStrip({
               <span
                 className={[
                   "text-[9px] leading-none mt-px",
-                  showInStock
-                    ? "text-white/80"
-                    : isAvailable
-                    ? "text-neutral-500"
-                    : "text-neutral-300",
+                  isAvailable ? "text-neutral-500" : "text-neutral-300",
                 ].join(" ")}
               >
                 {entry.eu}
