@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSessionInfo } from "@/lib/auth";
 import { supabaseService, type Shoe, type Profile } from "@/lib/supabase";
 import { AdminDashboard } from "./AdminDashboard";
+import { isStale, staleAgeDays } from "@/lib/staleness";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +67,17 @@ export default async function AdminPage() {
     interestsByShoe.set(row.shoe_id, arr);
   }
 
+  // Compute staleness server-side so the dashboard can render the banner + badges.
+  const now = new Date();
+  const staleShoeIds: string[] = [];
+  const staleAgeDaysById: Record<string, number> = {};
+  for (const s of shoes) {
+    if (isStale(s, now)) {
+      staleShoeIds.push(s.id);
+      staleAgeDaysById[s.id] = staleAgeDays(s, now);
+    }
+  }
+
   return (
     <AdminDashboard
       me={session.email ?? ""}
@@ -73,6 +85,8 @@ export default async function AdminPage() {
       shoes={shoes}
       profiles={profiles}
       interestsByShoe={Object.fromEntries(interestsByShoe)}
+      staleShoeIds={staleShoeIds}
+      staleAgeDaysById={staleAgeDaysById}
     />
   );
 }
