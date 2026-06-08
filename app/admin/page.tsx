@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSessionInfo } from "@/lib/auth";
-import { supabaseService, type Shoe, type Profile } from "@/lib/supabase";
+import { supabaseService, type Shoe, type Profile, type ShoeEvent } from "@/lib/supabase";
 import { AdminDashboard } from "./AdminDashboard";
 import { isStale, staleAgeDays } from "@/lib/staleness";
 
@@ -43,13 +43,39 @@ export default async function AdminPage() {
 
   let profiles: Profile[] = [];
   let interests: InterestRow[] = [];
+  // shoe_events: fetch recent events for all shoes loaded above.
+  // Uses supabaseService (service-role) — bypasses RLS (no policies on shoe_events).
+  // Limit 50 per shoe to cap payload; index on (shoe_id, created_at desc) covers this.
+  let eventsByShoe: Record<string, ShoeEvent[]> = {};
+
   if (isAdmin) {
-    const [profilesQ, interestsQ] = await Promise.all([
+    const shoeIds = shoes.map((s) => s.id);
+    const [profilesQ, interestsQ, eventsQ] = await Promise.all([
       db.from("profiles").select("*").order("created_at", { ascending: false }),
       db.from("interests").select("*").order("created_at", { ascending: false }),
+      // Fetch events for all shoes: order by created_at desc, limit 50 per shoe
+      // via a single query (no per-shoe subqueries needed at this scale).
+      shoeIds.length > 0
+        ? db
+            .from("shoe_events")
+            .select("*")
+            .in("shoe_id", shoeIds)
+            .order("created_at", { ascending: false })
+            .limit(500)
+        : Promise.resolve({ data: [], error: null }),
     ]);
     profiles = (profilesQ.data as Profile[]) ?? [];
     interests = (interestsQ.data as InterestRow[]) ?? [];
+
+    // Group events by shoe_id, cap at 50 per shoe.
+    const allEvents = (eventsQ.data as ShoeEvent[]) ?? [];
+    const eventsMap = new Map<string, ShoeEvent[]>();
+    for (const ev of allEvents) {
+      const arr = eventsMap.get(ev.shoe_id) ?? [];
+      if (arr.length < 50) arr.push(ev);
+      eventsMap.set(ev.shoe_id, arr);
+    }
+    eventsByShoe = Object.fromEntries(eventsMap);
   }
 
   const profileById = new Map(profiles.map((p) => [p.id, p]));
@@ -85,6 +111,7 @@ export default async function AdminPage() {
       shoes={shoes}
       profiles={profiles}
       interestsByShoe={Object.fromEntries(interestsByShoe)}
+      eventsByShoe={eventsByShoe}
       staleShoeIds={staleShoeIds}
       staleAgeDaysById={staleAgeDaysById}
     />
