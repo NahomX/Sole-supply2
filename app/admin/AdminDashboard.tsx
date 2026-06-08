@@ -40,18 +40,28 @@ export function AdminDashboard({
   shoes,
   profiles,
   interestsByShoe,
+  staleShoeIds = [],
+  staleAgeDaysById = {},
 }: {
   me: string;
   role: Role;
   shoes: Shoe[];
   profiles: Profile[];
   interestsByShoe: Record<string, InterestWithEmail[]>;
+  /** IDs of shoes that meet the stale criteria (upcoming + no logistics progress + >7d) */
+  staleShoeIds?: string[];
+  /** Days-old for each stale shoe ID */
+  staleAgeDaysById?: Record<string, number>;
 }) {
   const router = useRouter();
   const isAdmin = role === "admin";
   const [tab, setTab] = useState<Tab>("shoes");
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [staleFilterActive, setStaleFilterActive] = useState(false);
+
+  const staleSet = new Set(staleShoeIds);
+  const staleCount = staleShoeIds.length;
 
   async function call(path: string, init: RequestInit) {
     setLoading(true);
@@ -143,6 +153,12 @@ export function AdminDashboard({
       ]
     : [["shoes", "Shoes"]];
 
+  // When the stale filter is active, only show stale rows in the shoes list.
+  const visibleShoes =
+    staleFilterActive && tab === "shoes"
+      ? shoes.filter((s) => staleSet.has(s.id))
+      : shoes;
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-10">
       <div className="flex items-center justify-between mb-6">
@@ -173,9 +189,31 @@ export function AdminDashboard({
 
       {msg && <div className="mb-4 text-sm text-red-600">{msg}</div>}
 
+      {/* Stale attention banner — shown in the Shoes tab when there are stale items */}
+      {tab === "shoes" && staleCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setStaleFilterActive((v) => !v)}
+          className={`w-full mb-4 flex items-center gap-2 px-4 py-2.5 rounded border text-sm font-medium transition-colors ${
+            staleFilterActive
+              ? "bg-amber-100 border-amber-400 text-amber-900"
+              : "bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100"
+          }`}
+        >
+          <span>&#9888;</span>
+          <span>
+            {staleCount} shoe{staleCount === 1 ? "" : "s"} need attention
+            (upcoming, no logistics progress, &gt;7 days old)
+          </span>
+          <span className="ml-auto text-xs font-normal">
+            {staleFilterActive ? "Show all" : "Filter to these"}
+          </span>
+        </button>
+      )}
+
       {tab === "shoes" && (
         <div className="space-y-4">
-          {shoes.map((s) => (
+          {visibleShoes.map((s) => (
             <ShoeRow
               key={s.id}
               shoe={s}
@@ -187,11 +225,18 @@ export function AdminDashboard({
               onAddSize={isAdmin ? (usSize) => addSizeToShoe(s.id, usSize) : undefined}
               onRemoveSize={isAdmin ? (usSize) => removeSizeFromShoe(s.id, usSize) : undefined}
               onDelete={isAdmin ? () => deleteShoe(s.id) : undefined}
+              staleBadge={
+                staleSet.has(s.id)
+                  ? { days: staleAgeDaysById[s.id] ?? 0 }
+                  : undefined
+              }
             />
           ))}
-          {shoes.length === 0 && (
+          {visibleShoes.length === 0 && (
             <div className="border border-neutral-200 rounded p-6 text-center text-neutral-500 text-sm">
-              No shoes yet.
+              {staleFilterActive
+                ? "No stale shoes — everything is moving."
+                : "No shoes yet."}
             </div>
           )}
         </div>
@@ -369,6 +414,7 @@ function ShoeRow({
   onAddSize,
   onRemoveSize,
   onDelete,
+  staleBadge,
 }: {
   shoe: Shoe;
   isAdmin: boolean;
@@ -379,6 +425,8 @@ function ShoeRow({
   onAddSize?: (usSize: string) => void;
   onRemoveSize?: (usSize: string) => void;
   onDelete?: () => void;
+  /** If set, renders an inline amber stale badge with the age in days */
+  staleBadge?: { days: number };
 }) {
   const sizes: ShoeSize[] = shoe.shoe_sizes ?? [];
   const sizeByUs = new Map(sizes.map((sz) => [sz.us_size, sz]));
@@ -446,6 +494,11 @@ function ShoeRow({
             {isAdmin && (
               <div className="text-xs text-neutral-500">
                 {interestCount > 0 ? `${interestCount} interested` : ""}
+              </div>
+            )}
+            {staleBadge && (
+              <div className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                Stale &middot; {staleBadge.days}d
               </div>
             )}
             {onDelete && (
