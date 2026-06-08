@@ -122,7 +122,7 @@ function escMd(s: string): string {
 async function guardAllowlist(
   ctx: Context,
   botName: string,
-  requiredRole: "shipper" | "admin"
+  requiredRole: "purchaser" | "shipper" | "admin"
 ): Promise<boolean> {
   const telegramId = ctx.from?.id;
   if (!telegramId) {
@@ -467,6 +467,11 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
   const config = WORK_BOT_CONFIGS[entry.name];
   if (!config) throw new Error(`No work-bot config for: ${entry.name}`);
 
+  // Derive the required role from the registry entry so each work bot enforces
+  // its own role. The purchaser bot requires "purchaser"; arrived/delivery
+  // require "shipper". Cast is safe — work bots never use "public".
+  const workRole = entry.role as "purchaser" | "shipper" | "admin";
+
   /** Build the shoe-list keyboard (one button per shoe, paginated to 20). */
   function buildShoeListKb(shoes: Array<Shoe | Omit<Shoe, "url">>): InlineKeyboard {
     const kb = new InlineKeyboard();
@@ -479,7 +484,7 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
   }
 
   async function listAndShow(ctx: Context) {
-    if (!(await guardAllowlist(ctx, entry.name, "shipper"))) return;
+    if (!(await guardAllowlist(ctx, entry.name, workRole))) return;
     const { shoes, error } = await getShoesByLogistics(config.fromStatus);
     if (error) {
       await ctx.reply("Error fetching shoes.");
@@ -505,7 +510,7 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
   });
 
   bot.command("help", async (ctx) => {
-    if (!(await guardAllowlist(ctx, entry.name, "shipper"))) return;
+    if (!(await guardAllowlist(ctx, entry.name, workRole))) return;
     await ctx.reply(
       `${entry.description}\n\n` +
         `Use /list to see ${config.listLabel.toLowerCase()}.\n` +
@@ -515,7 +520,7 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
 
   // Shoe tapped → show its eligible sizes as a toggle keyboard.
   bot.callbackQuery(/^pick:(.+)$/, async (ctx) => {
-    if (!(await guardAllowlist(ctx, entry.name, "shipper"))) {
+    if (!(await guardAllowlist(ctx, entry.name, workRole))) {
       await ctx.answerCallbackQuery("Access denied.");
       return;
     }
@@ -541,7 +546,7 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
 
   // Size button tapped → flip its ✓ in the keyboard (stateless toggle).
   bot.callbackQuery(/^sz:([^:]+):(.+)$/, async (ctx) => {
-    if (!(await guardAllowlist(ctx, entry.name, "shipper"))) {
+    if (!(await guardAllowlist(ctx, entry.name, workRole))) {
       await ctx.answerCallbackQuery("Access denied.");
       return;
     }
@@ -553,7 +558,7 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
 
   // "Advance selected" — advance only the ✓-marked sizes.
   bot.callbackQuery(/^go:(.+)$/, async (ctx) => {
-    if (!(await guardAllowlist(ctx, entry.name, "shipper"))) {
+    if (!(await guardAllowlist(ctx, entry.name, workRole))) {
       await ctx.answerCallbackQuery("Access denied.");
       return;
     }
@@ -583,7 +588,7 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
 
   // "Advance all" — advance every eligible size at fromStatus.
   bot.callbackQuery(/^szall:(.+)$/, async (ctx) => {
-    if (!(await guardAllowlist(ctx, entry.name, "shipper"))) {
+    if (!(await guardAllowlist(ctx, entry.name, workRole))) {
       await ctx.answerCallbackQuery("Access denied.");
       return;
     }
