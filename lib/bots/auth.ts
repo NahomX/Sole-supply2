@@ -10,7 +10,7 @@ import type { BotRole } from "./registry";
 
 export type TelegramUser = {
   telegram_id: number;
-  role: "admin" | "shipper";
+  role: "admin" | "shipper" | "purchaser";
   label: string | null;
   allowed_bots: string[] | null;
   created_at: string;
@@ -25,8 +25,11 @@ export type AllowlistResult =
  *
  * Rules:
  * - The row must exist in `telegram_users`.
- * - The row's role must be >= the required role for the bot
- *   (admin satisfies "shipper" requirement; shipper does not satisfy "admin").
+ * - The row's role must satisfy the required role for the bot:
+ *   - "admin" satisfies any requirement.
+ *   - "purchaser" satisfies only a "purchaser" requirement.
+ *   - "shipper" satisfies only a "shipper" requirement.
+ *   - "public" bots never reach this check.
  * - If `allowed_bots` is set, the bot name must appear in that array.
  */
 export async function checkAllowlist(
@@ -60,11 +63,14 @@ export async function checkAllowlist(
 
   const user = data as TelegramUser;
 
-  // Role check: admin > shipper.
+  // Role hierarchy:
+  //   admin satisfies any requirement.
+  //   purchaser satisfies only "purchaser".
+  //   shipper satisfies only "shipper".
   const roleOk =
-    requiredRole === "shipper"
-      ? user.role === "shipper" || user.role === "admin"
-      : user.role === "admin";
+    user.role === "admin" ||
+    (requiredRole === "purchaser" && user.role === "purchaser") ||
+    (requiredRole === "shipper" && user.role === "shipper");
 
   if (!roleOk) {
     return {

@@ -9,7 +9,7 @@
  * No new route code needed.
  */
 
-export type BotRole = "public" | "shipper" | "admin";
+export type BotRole = "public" | "purchaser" | "shipper" | "admin";
 
 export type BotEntry = {
   /** URL-safe name used as the [bot] path segment. */
@@ -44,7 +44,7 @@ export const BOT_REGISTRY: BotEntry[] = [
   {
     name: "purchaser",
     description: "Purchaser bot — tap a shoe to mark it purchased.",
-    role: "shipper",
+    role: "purchaser",
     tokenEnvVar: "PURCHASER_BOT_TOKEN",
   },
   {
