@@ -84,6 +84,8 @@ export function sizeLabel(status: LogisticsStatus | null): SizeLabel {
 
 export type CustomerLabel = {
   text: string;
+  /** Amharic badge text, shown alongside `text` (Ethiopic font). Optional. */
+  textAm?: string;
   /** Tailwind class string for the badge background + text color */
   className: string;
   /** Which homepage section this shoe belongs in */
@@ -131,6 +133,8 @@ export function customerLabel(shoe: Shoe): CustomerLabel {
     case "in-stock":
       return {
         text: "In stock",
+        // "ዝግጁ" (ready/available) — matches the homepage "አሁን ዝግጁ" section.
+        textAm: "ዝግጁ",
         className: "bg-[#1F7A52] text-white",
         section: "in-stock",
       };
