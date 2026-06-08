@@ -72,7 +72,7 @@ async function insertEvent(opts: {
 }): Promise<void> {
   try {
     const db = supabaseService();
-    await db.from("shoe_events").insert({
+    const { error } = await db.from("shoe_events").insert({
       shoe_id: opts.shoeId,
       us_size: opts.usSize ?? null,
       event_type: opts.eventType,
@@ -81,9 +81,12 @@ async function insertEvent(opts: {
       actor: opts.meta?.actorLabel ?? null,
       source: opts.meta?.source ?? null,
     });
-  } catch {
+    if (error) {
+      console.error("[shoe-events] insert failed:", error.message);
+    }
+  } catch (err) {
     // Never propagate — an event-log failure must never break a status transition.
-    console.error("[shoe-events] failed to insert event");
+    console.error("[shoe-events] insert failed (exception):", (err as Error).message ?? err);
   }
 }
 
@@ -467,9 +470,12 @@ export async function advanceAllSizes(
         actor: meta?.actorLabel ?? null,
         source: meta?.source ?? null,
       }));
-      await db.from("shoe_events").insert(eventRows);
-    } catch {
-      console.error("[shoe-events] failed to insert advanceAllSizes events");
+      const { error: evtErr } = await db.from("shoe_events").insert(eventRows);
+      if (evtErr) {
+        console.error("[shoe-events] insert failed (advanceAllSizes):", evtErr.message);
+      }
+    } catch (err) {
+      console.error("[shoe-events] insert failed (advanceAllSizes exception):", (err as Error).message ?? err);
     }
   }
 
