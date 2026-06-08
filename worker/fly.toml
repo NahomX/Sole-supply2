@@ -1,0 +1,63 @@
+# fly.toml — Fly.io deploy config for the Berebaso agent worker.
+#
+# This is a LONG-RUNNING PROCESS (not a one-shot Job).
+# The worker polls the in-cart queue on an interval and waits for PO approvals.
+#
+# Deployment is USER-SIDE (you have the Fly account). Steps:
+#   1. Install flyctl: https://fly.io/docs/hands-on/install-flyctl/
+#   2. `fly auth login` (or `flyctl auth login`)
+#   3. `fly apps create berebaso-agent-worker` (one-time)
+#   4. Set secrets (see "Secret setup" below).
+#   5. `fly deploy --config worker/fly.toml` from the repo root.
+#      (Or cd into worker/ and run `fly deploy`.)
+#
+# Secret setup (run from your terminal — NOT committed to git):
+#   fly secrets set \
+#     STRIPE_RESTRICTED_KEY=rk_test_... \
+#     ANTHROPIC_API_KEY=sk-ant-... \
+#     SUPABASE_URL=https://....supabase.co \
+#     SUPABASE_WORKER_KEY=eyJ... \
+#     --app berebaso-agent-worker
+#
+# Optional tuning secrets:
+#   fly secrets set AGENT_ENABLED=false MAX_BUYS_PER_RUN=3 PO_APPROVAL_TIMEOUT_SECS=1800
+#
+# To check logs: `fly logs --app berebaso-agent-worker`
+# To SSH in:     `fly ssh console --app berebaso-agent-worker`
+# Kill switch:   `fly secrets set AGENT_ENABLED=false` (takes effect on next interval tick)
+#                OR update agent_config in Supabase: UPDATE agent_config SET agent_enabled=false WHERE id=1;
+
+app = "berebaso-agent-worker"
+primary_region = "iad"  # US East — close to Stripe's test infrastructure
+
+[build]
+  dockerfile = "Dockerfile"
+  # Build context is the worker/ directory.
+  # Run: fly deploy --config worker/fly.toml from repo root,
+  # or fly deploy from within worker/.
+
+[env]
+  # Non-secret env vars. Secrets (keys, tokens) must be set via `fly secrets set`.
+  NODE_ENV = "production"
+  LOOP_INTERVAL_MS = "300000"  # 5 minutes between loop ticks
+
+[processes]
+  # Single process group — the long-running agent loop.
+  app = "node dist/index.js"
+
+[[vm]]
+  # 1 shared CPU, 512 MB RAM is enough for Chromium + Node in headless mode.
+  # Increase to 1 dedicated CPU + 1 GB RAM if Playwright browser is OOM-killed.
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  count = 1  # Only ONE worker instance — multiple instances would cause duplicate buys.
+
+# No HTTP service — this is a worker process with no inbound traffic.
+# Fly.io will keep it alive via process health checks.
+
+# [http_service] intentionally omitted.
+
+# Fly machine restart policy: restart on crash, not on exit code 0.
+[restart]
+  policy = "on-failure"
+  max_retries = 5
