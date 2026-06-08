@@ -268,6 +268,24 @@ export async function setSalesStatus(
     });
   }
 
+  // When a shoe goes in stock, its listed sizes become buyable now — so the
+  // storefront should show them as available (green). The size grid keys
+  // "available" strictly on logistics_status = 'arrived', so promote any size
+  // still in the procurement pipeline (null / in_cart / purchased) to 'arrived'.
+  // 'delivered' (sold) sizes are left untouched so they stay greyed out.
+  // Fire-and-forget: a size-sync failure must never break the sales-status update.
+  if (to === "available") {
+    try {
+      await db
+        .from("shoe_sizes")
+        .update({ logistics_status: "arrived" })
+        .eq("shoe_id", id)
+        .or("logistics_status.is.null,logistics_status.in.(in_cart,purchased)");
+    } catch {
+      // Ignore — storefront falls back to whatever per-size statuses exist.
+    }
+  }
+
   return { shoe, error: null };
 }
 
