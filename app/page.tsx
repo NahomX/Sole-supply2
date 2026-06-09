@@ -2,6 +2,7 @@ import { supabaseService, type Shoe } from "@/lib/supabase";
 import { getSessionInfo } from "@/lib/auth";
 import { ShoeCard } from "@/components/ShoeCard";
 import { shoeSection } from "@/lib/labels";
+import { getSiteCopy, getCopy } from "@/lib/site-copy";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -12,9 +13,11 @@ async function getShoes(): Promise<Shoe[]> {
   const db = supabaseService();
   // Join shoe_sizes so shoeSection() can compute the best section from
   // per-size logistics statuses (Phase 1).
+  // Hide soft-removed shoes from the storefront (removed via the site-edit bot).
   const { data } = await db
     .from("shoes")
     .select("*, shoe_sizes(*)")
+    .is("removed_at", null)
     .order("created_at", { ascending: false });
   return (data as Shoe[]) ?? [];
 }
@@ -37,7 +40,11 @@ function redactForViewer(s: Shoe, isAdmin: boolean): Shoe {
 }
 
 export default async function HomePage() {
-  const [shoesRaw, session] = await Promise.all([getShoes(), getSessionInfo()]);
+  const [shoesRaw, session, copy] = await Promise.all([
+    getShoes(),
+    getSessionInfo(),
+    getSiteCopy(),
+  ]);
   const interested = session
     ? await getMyInterestShoeIds(session.userId)
     : new Set<string>();
@@ -207,10 +214,10 @@ export default async function HomePage() {
               className="text-white/90 font-medium text-lg"
               style={{ fontFamily: "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif", lineHeight: 1.45 }}
             >
-              ከአሜሪካ የመጡ አዳዲስ ጫማዎች፣ በቀጥታ ወደ አዲስ አበባ
+              {getCopy(copy, "hero_tagline", "am")}
             </p>
             <p className="text-white/90 text-sm max-w-md">
-              Fresh sneakers from the US, straight to Addis.{" "}
+              {getCopy(copy, "hero_tagline", "en")}{" "}
               {session
                 ? "Tap a shoe you want — we'll reach out when it's in stock."
                 : "Sign in from the header to reserve yours."}
@@ -283,10 +290,10 @@ export default async function HomePage() {
         instead of the actual section, potentially scrolling to nothing when
         "In stock" is empty.
       */}
-      <Section title="Available now" titleAm="አሁን ዝግጁ" items={inStock} id="in-stock" />
-      <Section title="On the way" titleAm="በመንገድ ላይ" items={onTheWay} id="on-the-way" />
-      <Section title="Coming soon" titleAm="በቅርቡ ይመጣል" items={comingSoon} id="coming-soon" />
-      <Section title="Previously" titleAm="ቀደም ሲል የነበሩ" items={previously} id="previously" dim />
+      <Section title={getCopy(copy, "section_available", "en")} titleAm={getCopy(copy, "section_available", "am")} items={inStock} id="in-stock" />
+      <Section title={getCopy(copy, "section_on_the_way", "en")} titleAm={getCopy(copy, "section_on_the_way", "am")} items={onTheWay} id="on-the-way" />
+      <Section title={getCopy(copy, "section_coming_soon", "en")} titleAm={getCopy(copy, "section_coming_soon", "am")} items={comingSoon} id="coming-soon" />
+      <Section title={getCopy(copy, "section_previously", "en")} titleAm={getCopy(copy, "section_previously", "am")} items={previously} id="previously" dim />
     </div>
   );
 }

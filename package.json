@@ -12,6 +12,7 @@
     "migrate:baseline": "node scripts/migrate.mjs --baseline"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
     "@supabase/ssr": "^0.5.1",
     "@supabase/supabase-js": "^2.45.0",
     "grammy": "^1.31.0",

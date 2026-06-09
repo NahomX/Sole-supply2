@@ -58,8 +58,31 @@
  *   ops_sales_pick:{shoeId}            — sales: shoe selected
  *   ops_sales_set:{shoeId}:{status}    — sales: set status
  *
+ * Ops bot — Phase B website-editing commands (admin-gated):
+ *   /edit:
+ *     edit_pick:{shoeId}               — shoe selected → field menu
+ *     edit_fld:{shoeId}:{field}        — field chosen (title|brand|price|notes
+ *                                        |sizes|sales); text fields send a
+ *                                        ForceReply whose text ENCODES the
+ *                                        target (stateless free-text capture)
+ *     edit_sales:{shoeId}:{status}     — set sales status (upcoming/available/sold)
+ *   /remove:
+ *     rm_pick:{shoeId}                 — shoe selected → confirm
+ *     rm_yes:{shoeId} / rm_no          — confirm / cancel soft-remove
+ *   /copy:
+ *     cp_key:{key}                     — copy key selected → EN/AM
+ *     cp_lang:{key}:{lang}             — language chosen → ForceReply for value
+ *
+ * Stateless free-text capture (no session store): /edit text fields and /copy
+ * send a ForceReply whose visible text embeds a parseable tag, e.g.
+ *   "✏️ New price for <title> [id:<shoeId>] — reply with the value"
+ *   "📝 New section_available (en) — reply with the value [copy:section_available:en]"
+ * The ops-bot message:text handler matches replies via reply_to_message.text,
+ * parses the tag, and dispatches. This is the only ops-bot message:text handler.
+ *
  * UUID shoeId is 36 chars; longest usSize is "10.5" (4 chars); longest status
  * is "delivered" (9 chars). Longest callback: ops_log_st:36:4:9 = 56 bytes.
+ * Phase B longest: edit_sales:36:9 = 57 bytes; cp_lang:18:2 = 29 bytes.
  */
 
 import { Bot, Context, InlineKeyboard } from "grammy";
@@ -76,10 +99,17 @@ import {
   addSize,
   advanceAllSizes,
   setSalesStatus,
+  syncSizesFromText,
+  updateShoeField,
+  softRemoveShoe,
   STATUSES,
   LOGISTICS,
 } from "@/lib/shoes";
-import type { FeedMeta } from "@/lib/shoes";
+import type { FeedMeta, EditableShoeField } from "@/lib/shoes";
+import { getSiteCopy, getCopy, setCopy } from "@/lib/site-copy";
+import type { SiteCopyKey, SiteCopyLang } from "@/lib/site-copy";
+import { parseOwnerIntent } from "@/lib/site-edit-nl";
+import type { OwnerIntent } from "@/lib/site-edit-nl";
 import { SIZE_GRID } from "@/lib/sizes";
 import type { Shoe, LogisticsStatus, ShoeStatus, ShoeSize } from "@/lib/supabase";
 import { supabaseService } from "@/lib/supabase";
@@ -118,6 +148,61 @@ function formatShoe(s: Shoe | Omit<Shoe, "url">, includeUrl = false): string {
 /** Escape special characters for Telegram MarkdownV2. */
 function escMd(s: string): string {
   return s.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, "\\$&");
+}
+
+// ---------------------------------------------------------------------------
+// Tier-2 natural-language confirmation helpers (ops bot).
+//
+// An LLM-derived command is NEVER executed without an explicit Yes tap. The
+// confirmation message embeds the full structured command as a base64 tag
+// ([nl:<b64>]) in its visible text, mirroring the stateless [edit:...]/[copy:...]
+// ForceReply convention — there is no server-side session store (Vercel is
+// serverless). The Yes/No callback_data is tiny (`nl_yes` / `nl_no`); the Yes
+// handler reads the command back out of ctx.callbackQuery.message.text.
+// ---------------------------------------------------------------------------
+
+/** A confirmable Tier-2 command (the LLM intent minus clarify/error). */
+type NlCommand = Extract<OwnerIntent, { command: string }>;
+
+/** Encode a confirmed command as a base64 tag for embedding in message text. */
+function encodeNlTag(cmd: NlCommand): string {
+  const b64 = Buffer.from(JSON.stringify(cmd), "utf8").toString("base64");
+  return `[nl:${b64}]`;
+}
+
+/** Recover a command from a confirmation message's text. Null if absent/bad. */
+function decodeNlTag(text: string | undefined): NlCommand | null {
+  if (!text) return null;
+  const m = text.match(/\[nl:([A-Za-z0-9+/=]+)\]/);
+  if (!m) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(m[1], "base64").toString("utf8"));
+    if (parsed && typeof parsed.command === "string") return parsed as NlCommand;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Human-readable, one-line description of a Tier-2 command for the prompt. */
+function summarizeNlCommand(cmd: NlCommand, shoeTitleById: Map<string, string>): string {
+  switch (cmd.command) {
+    case "edit_field": {
+      const title = shoeTitleById.get(cmd.args.shoe_id) ?? cmd.args.shoe_id;
+      const label = cmd.args.field === "price_usd" ? "price" : cmd.args.field;
+      return `Set ${label} of "${title}" to "${cmd.args.value}"`;
+    }
+    case "set_sales": {
+      const title = shoeTitleById.get(cmd.args.shoe_id) ?? cmd.args.shoe_id;
+      return `Set sales status of "${title}" to "${cmd.args.status}"`;
+    }
+    case "set_copy":
+      return `Set website copy "${cmd.args.key}" (${cmd.args.lang}) to "${cmd.args.value}"`;
+    case "remove_shoe": {
+      const title = shoeTitleById.get(cmd.args.shoe_id) ?? cmd.args.shoe_id;
+      return `Remove "${title}" (hide from the storefront)`;
+    }
+  }
 }
 
 async function guardAllowlist(
@@ -767,7 +852,12 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
         "/whoami — your Telegram ID\n" +
         "/sales — manage sales status\n" +
         "/logistics — per-size drill-down: pick shoe → size → status\n" +
-        "/help — this message"
+        "/edit — edit a shoe (title, brand, price, sizes, notes, sales status)\n" +
+        "/remove — hide a shoe from the storefront\n" +
+        "/copy — edit website copy (hero, sections, footer)\n" +
+        "/help — this message\n\n" +
+        "Tip: when enabled, you can also just type a plain instruction " +
+        '(e.g. "mark the Jordan 1s as sold") and confirm the change.'
     );
   });
 
@@ -784,7 +874,12 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
         "/list — full pipeline\n" +
         "/whoami — get your Telegram ID\n" +
         "/sales — change sales status\n" +
-        "/logistics — per-size drill-down: pick shoe → pick size → pick status (or clear)"
+        "/logistics — per-size drill-down: pick shoe → pick size → pick status (or clear)\n" +
+        "/edit — pick a shoe → edit title, brand, price, sizes, notes, or sales status\n" +
+        "/remove — pick a shoe → confirm → hide it from the storefront (soft-remove)\n" +
+        "/copy — edit website copy: pick a key → EN/AM → reply with the new value\n" +
+        "Plain text — when natural-language editing is enabled, type an instruction " +
+        "(e.g. \"set the price of the Dunks to 220\") and confirm before it applies"
     );
   });
 
@@ -948,5 +1043,472 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
     }
     const label = toStatus ?? "cleared (not started)";
     await ctx.reply(`US ${usSize} → ${label}`);
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase B — website-editing commands: /edit, /remove, /copy.
+  //
+  // Free-text values (title/brand/price/notes/sizes and copy values) are
+  // captured with a stateless ForceReply: the prompt's VISIBLE text embeds a
+  // parseable tag, and the message:text handler below reads
+  // reply_to_message.text to recover the target. There is NO session store
+  // (Vercel is serverless). This is the ONLY ops-bot message:text handler.
+  // -------------------------------------------------------------------------
+
+  // Short callback token → field. Keeps callback_data small and stable.
+  const FIELD_BY_TOKEN: Record<string, EditableShoeField> = {
+    title: "title",
+    brand: "brand",
+    price: "price_usd",
+    notes: "notes",
+  };
+  const TOKEN_BY_FIELD: Record<EditableShoeField, string> = {
+    title: "title",
+    brand: "brand",
+    price_usd: "price",
+    notes: "notes",
+  };
+  // Ordered copy keys for the /copy menu (matches lib/site-copy SiteCopyKey).
+  const COPY_KEYS: SiteCopyKey[] = [
+    "hero_tagline",
+    "section_available",
+    "section_on_the_way",
+    "section_coming_soon",
+    "section_previously",
+    "footer",
+  ];
+
+  /** Build a shoe-picker keyboard for /edit and /remove (mirrors /sales). */
+  function buildShoePickerKb(
+    shoes: Array<Shoe | Omit<Shoe, "url">>,
+    cbPrefix: string
+  ): InlineKeyboard {
+    const kb = new InlineKeyboard();
+    shoes.slice(0, 20).forEach((s) => {
+      const label = `${s.title.slice(0, 35)} [${s.status}]`;
+      kb.text(label, `${cbPrefix}:${s.id}`).row();
+    });
+    return kb;
+  }
+
+  // ----- /edit ------------------------------------------------------------
+  bot.command("edit", async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) return;
+    const { shoes, error } = await getAllShoes();
+    if (error) {
+      await ctx.reply("Error fetching shoes.");
+      return;
+    }
+    if (shoes.length === 0) {
+      await ctx.reply("No shoes.");
+      return;
+    }
+    await ctx.reply("Pick a shoe to edit:", {
+      reply_markup: buildShoePickerKb(shoes, "edit_pick"),
+    });
+  });
+
+  // Shoe selected → show the field menu.
+  bot.callbackQuery(/^edit_pick:(.+)$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const shoeId = ctx.match[1];
+    const kb = new InlineKeyboard()
+      .text("Title", `edit_fld:${shoeId}:title`)
+      .text("Brand", `edit_fld:${shoeId}:brand`)
+      .row()
+      .text("Price", `edit_fld:${shoeId}:price`)
+      .text("Notes", `edit_fld:${shoeId}:notes`)
+      .row()
+      .text("Sizes", `edit_fld:${shoeId}:sizes`)
+      .text("Sales status", `edit_fld:${shoeId}:sales`);
+    await ctx.reply("What do you want to edit?", { reply_markup: kb });
+  });
+
+  // Field chosen → branch: text fields → ForceReply; sizes → ForceReply;
+  // sales → status buttons.
+  bot.callbackQuery(/^edit_fld:([^:]+):(.+)$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const shoeId = ctx.match[1];
+    const fieldToken = ctx.match[2];
+
+    // Look up the shoe title for a friendly prompt.
+    const { shoes } = await getAllShoes();
+    const shoe = shoes.find((s) => s.id === shoeId);
+    const title = shoe?.title ?? "this shoe";
+
+    if (fieldToken === "sales") {
+      const kb = new InlineKeyboard();
+      STATUSES.forEach((s) => kb.text(s, `edit_sales:${shoeId}:${s}`).row());
+      await ctx.reply(`Choose new sales status for "${title}":`, {
+        reply_markup: kb,
+      });
+      return;
+    }
+
+    if (fieldToken === "sizes") {
+      // ForceReply for a free-text size list → syncSizesFromText.
+      await ctx.reply(
+        `📐 New size list for ${title} [id:${shoeId}] — reply with the sizes (e.g. "8, 9, 10.5"). [edit:sizes:${shoeId}]`,
+        { reply_markup: { force_reply: true } }
+      );
+      return;
+    }
+
+    const field = FIELD_BY_TOKEN[fieldToken];
+    if (!field) {
+      await ctx.reply("Unknown field.");
+      return;
+    }
+    const fieldLabel = fieldToken === "price" ? "price (USD)" : fieldToken;
+    await ctx.reply(
+      `✏️ New ${fieldLabel} for ${title} [id:${shoeId}] — reply with the value. [edit:${fieldToken}:${shoeId}]`,
+      { reply_markup: { force_reply: true } }
+    );
+  });
+
+  // Sales status chosen for a shoe (via /edit).
+  bot.callbackQuery(/^edit_sales:([^:]+):(.+)$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const shoeId = ctx.match[1];
+    const newStatus = ctx.match[2] as ShoeStatus;
+    const result = await setSalesStatus(shoeId, newStatus, botMeta(ctx, entry.name));
+    if (result.error) {
+      await ctx.reply(`Error: ${result.error}`);
+      return;
+    }
+    await ctx.reply(
+      `Sales status set to *${escMd(newStatus)}* for "${escMd(result.shoe!.title)}"`,
+      { parse_mode: "MarkdownV2" }
+    );
+  });
+
+  // ----- /remove ----------------------------------------------------------
+  bot.command("remove", async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) return;
+    const { shoes, error } = await getAllShoes();
+    if (error) {
+      await ctx.reply("Error fetching shoes.");
+      return;
+    }
+    if (shoes.length === 0) {
+      await ctx.reply("No shoes.");
+      return;
+    }
+    await ctx.reply("Pick a shoe to remove (hide from storefront):", {
+      reply_markup: buildShoePickerKb(shoes, "rm_pick"),
+    });
+  });
+
+  // Shoe selected → confirm Yes/No.
+  bot.callbackQuery(/^rm_pick:(.+)$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const shoeId = ctx.match[1];
+    const { shoes } = await getAllShoes();
+    const shoe = shoes.find((s) => s.id === shoeId);
+    const title = shoe?.title ?? "this shoe";
+    const kb = new InlineKeyboard()
+      .text("Yes, remove", `rm_yes:${shoeId}`)
+      .text("No, cancel", "rm_no");
+    await ctx.reply(
+      `Remove "${title}"? It will be hidden from the storefront (the record is kept).`,
+      { reply_markup: kb }
+    );
+  });
+
+  // Cancel.
+  bot.callbackQuery(/^rm_no$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery("Cancelled.");
+    await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+    await ctx.reply("Removal cancelled.");
+  });
+
+  // Confirm → soft-remove.
+  bot.callbackQuery(/^rm_yes:(.+)$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const shoeId = ctx.match[1];
+    const result = await softRemoveShoe(shoeId, botMeta(ctx, entry.name));
+    await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+    if (result.error) {
+      await ctx.reply(`Error: ${result.error}`);
+      return;
+    }
+    await ctx.reply("Done — the shoe is now hidden from the storefront.");
+  });
+
+  // ----- /copy ------------------------------------------------------------
+  bot.command("copy", async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) return;
+    const kb = new InlineKeyboard();
+    COPY_KEYS.forEach((k) => kb.text(k, `cp_key:${k}`).row());
+    await ctx.reply("Pick a website copy key to edit:", { reply_markup: kb });
+  });
+
+  // Copy key selected → choose language.
+  bot.callbackQuery(/^cp_key:(.+)$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const key = ctx.match[1] as SiteCopyKey;
+    const copy = await getSiteCopy();
+    const en = getCopy(copy, key, "en");
+    const am = getCopy(copy, key, "am");
+    const kb = new InlineKeyboard()
+      .text("English", `cp_lang:${key}:en`)
+      .text("Amharic", `cp_lang:${key}:am`);
+    await ctx.reply(
+      `Editing "${key}".\nCurrent EN: ${en || "—"}\nCurrent AM: ${am || "—"}\n\nPick a language:`,
+      { reply_markup: kb }
+    );
+  });
+
+  // Language selected → ForceReply for the new value.
+  bot.callbackQuery(/^cp_lang:([^:]+):(en|am)$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const key = ctx.match[1] as SiteCopyKey;
+    const lang = ctx.match[2] as SiteCopyLang;
+    await ctx.reply(
+      `📝 New value for ${key} (${lang}) — reply with the text. [copy:${key}:${lang}]`,
+      { reply_markup: { force_reply: true } }
+    );
+  });
+
+  // ----- Tier-2 natural-language flow ------------------------------------
+  // Maps the LLM intent's shoe field token back onto the Tier-1 helper call.
+
+  /**
+   * Parse free text into a Tier-2 intent and reply. Gated on opt-in env flags;
+   * if the parse yields a command we ask for an explicit Yes/No confirmation —
+   * nothing is mutated here. Never executes an LLM-derived change.
+   */
+  async function handleNlFreeText(ctx: Context, text: string): Promise<void> {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) return;
+
+    // Opt-in only — Tier 1 keeps working when NL editing is disabled.
+    if (process.env.SITE_EDIT_NL_ENABLED !== "true" || !process.env.ANTHROPIC_API_KEY) {
+      await ctx.reply("Natural-language editing isn't configured.");
+      return;
+    }
+
+    const { shoes, error } = await getAllShoes();
+    if (error) {
+      await ctx.reply("Error fetching shoes.");
+      return;
+    }
+    const shoeRefs = shoes.map((s) => ({
+      id: s.id,
+      title: s.title,
+      brand: s.brand,
+      status: s.status,
+    }));
+
+    const intent = await parseOwnerIntent(text, shoeRefs);
+
+    if ("error" in intent) {
+      // not_configured is covered by the env gate above; treat the rest as a
+      // soft failure the owner can retry or fall back to the menu commands.
+      await ctx.reply(
+        "Sorry, I couldn't turn that into a change. Try rephrasing, or use /edit, /remove, or /copy."
+      );
+      return;
+    }
+    if ("clarify" in intent) {
+      await ctx.reply(intent.clarify);
+      return;
+    }
+
+    // A concrete command → confirm before applying.
+    const titleById = new Map(shoes.map((s) => [s.id, s.title] as const));
+    const summary = summarizeNlCommand(intent, titleById);
+    const kb = new InlineKeyboard()
+      .text("Yes, apply", "nl_yes")
+      .text("No, cancel", "nl_no");
+    // The structured command rides in the message text as a base64 tag so the
+    // Yes handler can reconstruct it statelessly (callback_data stays ≤64 bytes).
+    await ctx.reply(`Apply this change: ${summary}?\n${encodeNlTag(intent)}`, {
+      reply_markup: kb,
+    });
+  }
+
+  /** Execute a confirmed Tier-2 command via the matching Tier-1 helper. */
+  async function applyNlCommand(ctx: Context, cmd: NlCommand): Promise<void> {
+    const meta = botMeta(ctx, entry.name);
+    switch (cmd.command) {
+      case "edit_field": {
+        const result = await updateShoeField(cmd.args.shoe_id, cmd.args.field, cmd.args.value, meta);
+        if (result.error) {
+          await ctx.reply(`Error: ${result.error}`);
+          return;
+        }
+        await ctx.reply(
+          `Updated *${escMd(TOKEN_BY_FIELD[cmd.args.field])}* for "${escMd(result.shoe!.title)}"`,
+          { parse_mode: "MarkdownV2" }
+        );
+        return;
+      }
+      case "set_sales": {
+        const result = await setSalesStatus(cmd.args.shoe_id, cmd.args.status, meta);
+        if (result.error) {
+          await ctx.reply(`Error: ${result.error}`);
+          return;
+        }
+        await ctx.reply(
+          `Sales status set to *${escMd(cmd.args.status)}* for "${escMd(result.shoe!.title)}"`,
+          { parse_mode: "MarkdownV2" }
+        );
+        return;
+      }
+      case "set_copy": {
+        const result = await setCopy(
+          cmd.args.key,
+          cmd.args.lang,
+          cmd.args.value,
+          meta.actorLabel ?? "ops"
+        );
+        if (result.error) {
+          await ctx.reply(`Error: ${result.error}`);
+          return;
+        }
+        await ctx.reply(`Website copy "${cmd.args.key}" (${cmd.args.lang}) updated.`);
+        return;
+      }
+      case "remove_shoe": {
+        const result = await softRemoveShoe(cmd.args.shoe_id, meta);
+        if (result.error) {
+          await ctx.reply(`Error: ${result.error}`);
+          return;
+        }
+        await ctx.reply("Done — the shoe is now hidden from the storefront.");
+        return;
+      }
+    }
+  }
+
+  // Yes → reconstruct the command from the confirmation text and apply it.
+  bot.callbackQuery(/^nl_yes$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+    const cmd = decodeNlTag(ctx.callbackQuery.message?.text);
+    if (!cmd) {
+      await ctx.reply("This confirmation expired — please send the request again.");
+      return;
+    }
+    await applyNlCommand(ctx, cmd);
+  });
+
+  // No → cancel.
+  bot.callbackQuery(/^nl_no$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery("Cancelled.");
+    await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+    await ctx.reply("Cancelled — no change made.");
+  });
+
+  // -------------------------------------------------------------------------
+  // Stateless free-text capture — the ONLY ops-bot message:text handler.
+  // Two paths, mutually exclusive on whether the message is a reply:
+  //  • Reply carrying an [edit:...]/[copy:...] tag → Tier-1 ForceReply capture.
+  //  • Plain free text (no reply, not a slash command) → Tier-2 natural-language
+  //    intent: parse with Claude, then ask for an explicit Yes/No confirmation
+  //    before any change is applied (see the nl_yes/nl_no callbacks below).
+  // Everything else is ignored so we never swallow unrelated messages.
+  // -------------------------------------------------------------------------
+  bot.on("message:text", async (ctx) => {
+    const promptText = ctx.message.reply_to_message?.text;
+
+    // ----- Tier-2: plain free text (not a reply, not a slash command) -------
+    if (!promptText) {
+      const text = ctx.message.text.trim();
+      if (text.startsWith("/")) return; // Slash command → handled elsewhere.
+      await handleNlFreeText(ctx, text);
+      return;
+    }
+
+    const editMatch = promptText.match(/\[edit:([^:\]]+):([^\]]+)\]/);
+    const copyMatch = promptText.match(/\[copy:([^:\]]+):(en|am)\]/);
+    if (!editMatch && !copyMatch) return; // Not one of our prompts → ignore.
+
+    // Re-verify admin before mutating.
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) return;
+
+    const value = ctx.message.text.trim();
+    const meta = botMeta(ctx, entry.name);
+
+    if (editMatch) {
+      const token = editMatch[1];
+      const shoeId = editMatch[2];
+
+      if (token === "sizes") {
+        const result = await syncSizesFromText(shoeId, value);
+        if (result.error) {
+          await ctx.reply(`Error: ${result.error}`);
+          return;
+        }
+        await ctx.reply("Sizes updated.");
+        return;
+      }
+
+      const field = FIELD_BY_TOKEN[token];
+      if (!field) {
+        await ctx.reply("Unknown field — please start again with /edit.");
+        return;
+      }
+      const result = await updateShoeField(shoeId, field, value, meta);
+      if (result.error) {
+        await ctx.reply(`Error: ${result.error}`);
+        return;
+      }
+      await ctx.reply(
+        `Updated *${escMd(TOKEN_BY_FIELD[field])}* for "${escMd(result.shoe!.title)}"`,
+        { parse_mode: "MarkdownV2" }
+      );
+      return;
+    }
+
+    // copyMatch
+    const key = copyMatch![1] as SiteCopyKey;
+    const lang = copyMatch![2] as SiteCopyLang;
+    const result = await setCopy(key, lang, value, meta.actorLabel ?? "ops");
+    if (result.error) {
+      await ctx.reply(`Error: ${result.error}`);
+      return;
+    }
+    await ctx.reply(`Website copy "${key}" (${lang}) updated.`);
   });
 }

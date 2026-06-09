@@ -3,6 +3,7 @@ import { Inter, Noto_Sans_Ethiopic } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
 import { AuthNav } from "@/components/AuthNav";
+import { getSiteCopy, getCopy } from "@/lib/site-copy";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -22,11 +23,12 @@ export const metadata: Metadata = {
   description: "Curated sneakers, coming soon to Addis Ababa.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const copy = await getSiteCopy();
   return (
     <html lang="en" className={`${inter.variable} ${ethiopic.variable}`}>
       <body className="font-sans min-h-screen flex flex-col">
@@ -61,7 +63,7 @@ export default function RootLayout({
             >
               በረባሶ
             </span>
-            <span>· Addis Ababa, Ethiopia</span>
+            <span>· {getCopy(copy, "footer", "en")}</span>
           </div>
         </footer>
       </body>
