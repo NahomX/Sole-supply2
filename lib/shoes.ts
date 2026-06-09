@@ -60,7 +60,12 @@ function buildFeedSuffix(meta?: FeedMeta): string {
 // Only fires after migration 0010_shoe_events.sql has been run by the user.
 // ---------------------------------------------------------------------------
 
-type EventType = "shoe_created" | "sales_status_change" | "logistics_status_change";
+type EventType =
+  | "shoe_created"
+  | "sales_status_change"
+  | "logistics_status_change"
+  | "shoe_edit"
+  | "shoe_removed";
 
 async function insertEvent(opts: {
   shoeId: string;
@@ -287,6 +292,130 @@ export async function setSalesStatus(
   }
 
   return { shoe, error: null };
+}
+
+// ---------------------------------------------------------------------------
+// updateShoeField — edit ONE scalar field on a shoe (Telegram site-edit bot).
+// ---------------------------------------------------------------------------
+
+/** Shoe fields editable via updateShoeField. Sizes + sales status are edited
+ * through their dedicated helpers (syncSizesFromText, setSalesStatus). */
+export type EditableShoeField = "title" | "brand" | "price_usd" | "notes";
+
+const EDITABLE_FIELDS: EditableShoeField[] = [
+  "title",
+  "brand",
+  "price_usd",
+  "notes",
+];
+
+/**
+ * Update ONE of {title, brand, price_usd, notes} on a shoe by ID.
+ * Validates `field` against the allowlist; coerces price_usd to a number.
+ * Records a 'shoe_edit' audit event (from old value → new value) and posts a
+ * one-line ops-feed summary. Returns the updated shoe row.
+ */
+export async function updateShoeField(
+  id: string,
+  field: EditableShoeField,
+  value: string | number | null,
+  meta?: FeedMeta
+): Promise<UpdateResult> {
+  if (!EDITABLE_FIELDS.includes(field)) {
+    return { shoe: null, error: "invalid field" };
+  }
+
+  // Coerce + validate the new value per field.
+  let newValue: string | number | null;
+  if (field === "price_usd") {
+    if (value === null || value === "") {
+      newValue = null;
+    } else {
+      const n = typeof value === "number" ? value : Number(value);
+      if (!Number.isFinite(n)) {
+        return { shoe: null, error: "invalid price" };
+      }
+      newValue = n;
+    }
+  } else {
+    newValue = value === null ? null : String(value);
+  }
+
+  const db = supabaseService();
+
+  // Fetch current value so the audit event records the real transition.
+  const { data: before } = await db
+    .from("shoes")
+    .select(`title,${field}`)
+    .eq("id", id)
+    .single();
+  const prev = (before as Record<string, unknown> | null)?.[field] ?? null;
+
+  const { data, error } = await db
+    .from("shoes")
+    .update({ [field]: newValue })
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) return { shoe: null, error: error.message };
+  const shoe = data as Shoe;
+
+  await postOpsFeed(
+    `\u{270F}\u{FE0F} ${shoe.title} \u{2014} ${field} \u{2192} ${
+      newValue ?? "cleared"
+    }${buildFeedSuffix(meta)}`
+  );
+
+  // Audit event: record the field edit.
+  await insertEvent({
+    shoeId: id,
+    eventType: "shoe_edit",
+    fromValue: prev === null ? null : String(prev),
+    toValue: newValue === null ? null : String(newValue),
+    meta,
+  });
+
+  return { shoe, error: null };
+}
+
+// ---------------------------------------------------------------------------
+// softRemoveShoe — hide a shoe from the storefront without deleting the row.
+// ---------------------------------------------------------------------------
+
+/**
+ * Soft-remove a shoe by stamping removed_at = now(). The row is preserved (audit
+ * trail intact); all customer/ops list queries filter `removed_at is null`.
+ * Records a 'shoe_removed' audit event and posts a one-line ops-feed summary.
+ */
+export async function softRemoveShoe(
+  id: string,
+  meta?: FeedMeta
+): Promise<{ error: string | null }> {
+  const db = supabaseService();
+
+  const { data, error } = await db
+    .from("shoes")
+    .update({ removed_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("title")
+    .single();
+  if (error) return { error: error.message };
+
+  const title = (data as { title: string } | null)?.title ?? id;
+  await postOpsFeed(
+    `\u{1F5D1}\u{FE0F} ${title} removed${buildFeedSuffix(meta)}`
+  );
+
+  // Audit event: record the soft-remove.
+  await insertEvent({
+    shoeId: id,
+    eventType: "shoe_removed",
+    fromValue: null,
+    toValue: "removed",
+    meta,
+  });
+
+  return { error: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -562,9 +691,11 @@ export async function getShoesByLogistics(
 
   if (logisticsStatus === null) {
     // Unstarted: shoes where all sizes are null, or shoe has no size rows.
+    // Soft-removed shoes (removed_at set) are excluded from all working views.
     const { data, error } = await db
       .from("shoes")
       .select("*, shoe_sizes(*)")
+      .is("removed_at", null)
       .order("created_at", { ascending: true });
     if (error) return { shoes: [], error: error.message };
     const all = (data as Shoe[]) ?? [];
@@ -589,6 +720,7 @@ export async function getShoesByLogistics(
     .from("shoes")
     .select("*, shoe_sizes(*)")
     .in("id", ids)
+    .is("removed_at", null)
     .order("created_at", { ascending: true });
   if (error) return { shoes: [], error: error.message };
   return { shoes: (data as Shoe[]) ?? [], error: null };
@@ -600,9 +732,11 @@ export async function getAllShoes(): Promise<{
   error: string | null;
 }> {
   const db = supabaseService();
+  // Soft-removed shoes are hidden from the ops/admin working views too.
   const { data, error } = await db
     .from("shoes")
     .select("*, shoe_sizes(*)")
+    .is("removed_at", null)
     .order("created_at", { ascending: true });
   if (error) return { shoes: [], error: error.message };
   return { shoes: (data as Shoe[]) ?? [], error: null };
@@ -622,6 +756,7 @@ export async function getPublicShoes(filter?: {
   let q = db
     .from("shoes")
     .select("id,title,brand,image_url,price_usd,sizes,notes,status,created_at,shoe_sizes(*)")
+    .is("removed_at", null)
     .order("created_at", { ascending: false });
   if (filter?.status) {
     q = q.eq("status", filter.status);
