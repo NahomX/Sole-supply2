@@ -6,7 +6,52 @@
   color-scheme: light;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 html,
 body {
-  @apply bg-white text-neutral-900;
+  /* Redesign: warm cream canvas + near-black ink text (mockup --cream / --ink).
+     Note: this background is shared by /auth, /submit and /admin too — their
+     white cards still read fine on cream. */
+  @apply bg-cream text-ink;
+}
+
+/* ---------------------------------------------------------------------------
+   Marquee strip (homepage) — mirrors the mockup's @keyframes slide.
+   The track renders its content twice, so -50% loops seamlessly.
+--------------------------------------------------------------------------- */
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee 28s linear infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   AuthNav recolor on the dark sticky header.
+   components/AuthNav.tsx is shared (and styled for light backgrounds with
+   text-neutral-* classes); it is intentionally NOT modified by the redesign.
+   These scoped overrides win on specificity so its links/buttons stay legible
+   on the ink header without touching the component.
+--------------------------------------------------------------------------- */
+.nav-auth a,
+.nav-auth button {
+  color: rgba(246, 242, 234, 0.78);
+}
+
+.nav-auth a:hover,
+.nav-auth button:hover {
+  color: #f6f2ea;
+}
+
+.nav-auth span {
+  color: rgba(246, 242, 234, 0.45);
 }

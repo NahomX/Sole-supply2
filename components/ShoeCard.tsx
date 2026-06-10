@@ -2,11 +2,38 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { Shoe, ShoeSize } from "@/lib/supabase";
 import { customerLabel } from "@/lib/labels";
-import { sizeGridFromSizes, parseAvailableSizes } from "@/lib/sizes";
+import { sizeGridFromSizes, sizeGrid } from "@/lib/sizes";
+import { categoryFromTitle } from "@/components/shoe-category";
 
-type Mode = "idle" | "info" | "request";
+type Mode = "idle" | "request";
+
+const ETHIOPIC_FONT =
+  "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif";
+
+/** "18500" → "ብር 18,500" (no USD anywhere in customer UI). */
+function formatEtb(priceEtb: number): string {
+  return `ብር ${Number(priceEtb).toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+/**
+ * The US sizes a customer can still get (or vote for): shoe_sizes rows that
+ * aren't sold-out, in SIZE_GRID order; legacy free-text fallback when no rows.
+ */
+function listedUsSizes(shoeSizes: ShoeSize[] | undefined, sizesText: string | null): string[] {
+  if (shoeSizes && shoeSizes.length > 0) {
+    return sizeGridFromSizes(shoeSizes)
+      .filter((e) => e.available && e.customerState !== "sold-out")
+      .map((e) => e.us);
+  }
+  return sizeGrid(sizesText)
+    .filter((e) => e.available)
+    .map((e) => e.us);
+}
 
 export function ShoeCard({
   shoe,
@@ -29,14 +56,17 @@ export function ShoeCard({
   const [err, setErr] = useState<string | null>(null);
   // Tracks whether the product image has errored so we can show the empty state.
   const [imgError, setImgError] = useState(false);
+  // Hands-on video: tapping the play tile swaps the image for a <video>.
+  const [showVideo, setShowVideo] = useState(false);
 
-  const reviewsUrl = `https://www.google.com/search?q=${encodeURIComponent(
-    `${shoe.title} reviews`
-  )}`;
-
-  const label = customerLabel(shoe);
+  const section = customerLabel(shoe).section;
+  const isComingSoon = section === "coming-soon";
   const canShowRequest =
     shoe.status !== "sold" && signedIn && !alreadyRequested;
+
+  // GENERAL category on the card; full model name lives on /shoe/[id].
+  const category = categoryFromTitle(shoe.title);
+  const sizes = listedUsSizes(shoe.shoe_sizes, shoe.sizes);
 
   async function send() {
     setLoading(true);
@@ -60,26 +90,60 @@ export function ShoeCard({
     }
   }
 
+  // Status pill — mockup palette (NEVER "In Addis"; no internal pipeline labels).
+  const pill =
+    section === "in-stock"
+      ? { text: "● In stock", className: "bg-[#e3f6ec] text-[#137044]" }
+      : section === "on-the-way"
+      ? { text: "✈ On the way", className: "bg-[#fff1e6] text-accent-deep" }
+      : section === "previously"
+      ? { text: "Sold", className: "bg-neutral-200 text-neutral-600" }
+      : { text: "Coming soon", className: "bg-[#eee9df] text-[#6b6354]" };
+
   return (
-    /*
-      Visual polish:
-      - rounded-xl (up from rounded-lg) + resting shadow-sm
-      - hover: subtle lift (-translate-y-0.5) + deeper shadow + lighter border
-      - GPU-only transitions: transform + shadow (no layout reflow)
-      - group class enables image zoom on card hover
-    */
     <div
-      className={`group rounded-xl border border-neutral-200 overflow-hidden bg-white flex flex-col shadow-sm transition-shadow transition-transform duration-200 hover:shadow-lg hover:-translate-y-0.5 hover:border-neutral-300 ${
-        dim ? "opacity-50" : ""
+      className={`group bg-paper border border-line rounded-[20px] overflow-hidden flex flex-col transition-[transform,box-shadow] duration-200 hover:-translate-y-1 hover:shadow-[0_24px_48px_rgba(30,25,15,0.13)] ${
+        dim ? "opacity-60" : ""
       }`}
     >
-      <div className="aspect-square bg-neutral-100 relative overflow-hidden">
-        {shoe.image_url && !imgError ? (
+      {/* Image-first media box: warm radial backdrop, product shot blended in */}
+      <div
+        className="relative overflow-hidden flex items-center justify-center"
+        style={{
+          aspectRatio: "1 / 1.02",
+          background:
+            "radial-gradient(circle at 50% 38%, #ffffff 0%, #efe9dc 100%)",
+        }}
+      >
+        {showVideo && shoe.video_url ? (
+          <>
+            {/*
+              Hands-on video of the actual pair (video_url, migration 0012) —
+              rendered only on demand so the card stays light by default.
+            */}
+            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+            <video
+              src={shoe.video_url}
+              controls
+              playsInline
+              preload="metadata"
+              className="absolute inset-0 w-full h-full object-contain bg-ink"
+            />
+            <button
+              type="button"
+              onClick={() => setShowVideo(false)}
+              aria-label="Close video"
+              className="absolute top-2 right-2 z-10 w-8 h-8 rounded-full bg-ink/80 text-cream text-sm font-bold flex items-center justify-center hover:bg-ink"
+            >
+              ✕
+            </button>
+          </>
+        ) : shoe.image_url && !imgError ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={shoe.image_url}
             alt={shoe.title}
-            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            className="w-[94%] max-h-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-300"
             onError={() => setImgError(true)}
           />
         ) : (
@@ -115,108 +179,132 @@ export function ShoeCard({
             <span className="text-xs">No image</span>
           </div>
         )}
-        {/*
-          Badge: rounded-full + ring-1 for crispness on photos.
-          "In stock" uses brand.green (#1F7A52) instead of generic green-600.
-          Other badges use brand-palette classes via label.className.
-        */}
-        <span
-          className={`absolute top-2 left-2 text-[10px] uppercase tracking-wider px-2 py-1 rounded-full ring-1 ring-black/5 ${label.className}`}
-        >
-          {label.text}
-          {label.textAm && (
-            <>
-              {" · "}
-              <span
-                lang="am"
-                style={{
-                  fontFamily:
-                    "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif",
-                }}
-              >
-                {label.textAm}
-              </span>
-            </>
-          )}
-        </span>
+
+        {!showVideo && (
+          <span
+            className={`absolute top-3.5 left-3.5 text-[10.5px] font-extrabold uppercase tracking-[0.1em] px-3 py-1.5 rounded-full ${pill.className}`}
+          >
+            {pill.text}
+          </span>
+        )}
+
+        {/* Play tile — ONLY when a hands-on video exists for this pair. */}
+        {shoe.video_url && !showVideo && (
+          <button
+            type="button"
+            onClick={() => setShowVideo(true)}
+            className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-ink text-cream text-[11px] font-bold rounded-[9px] px-2.5 py-2 shadow-md hover:bg-accent-deep transition-colors"
+            aria-label="Watch hands-on video"
+          >
+            <span aria-hidden="true">▶</span> Video
+          </button>
+        )}
       </div>
-      <div className="p-3 flex-1 flex flex-col gap-2">
+
+      <div className="p-[18px] pb-5 flex-1 flex flex-col gap-3">
         <div>
           {shoe.brand && (
-            <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+            <div className="text-[10.5px] font-extrabold uppercase tracking-[0.16em] text-muted">
               {shoe.brand}
             </div>
           )}
-          <div className="text-sm font-medium line-clamp-2 min-h-[2.5rem]">
-            {shoe.title}
-          </div>
+          {/* General category only — full model name on the details page. */}
+          <h3
+            className="text-base font-extrabold leading-snug truncate mt-0.5"
+            title={category}
+          >
+            {category}
+          </h3>
         </div>
 
-        {/*
-          Size availability strip — display-only, NOT interactive.
-          Phase 1: driven by shoe_sizes rows (per-size logistics status).
-          Falls back to free-text parsing if shoe_sizes is absent or empty
-          (pre-migration shoes or shoes not yet given sizes in the editor).
-        */}
-        <SizeStrip shoeSizes={shoe.shoe_sizes} sizesText={shoe.sizes} />
+        {/* Meta row: admin-set birr price when set, otherwise contact link.
+            NO USD prices ever (price_usd is stripped server-side for non-admins). */}
+        <div className="flex items-center justify-between gap-2">
+          {shoe.price_etb != null ? (
+            <div className="font-display text-[15px] font-bold">
+              {formatEtb(shoe.price_etb)}
+            </div>
+          ) : (
+            <Link
+              href="/#visit"
+              className="text-[11.5px] font-extrabold border-[1.5px] border-line hover:border-ink rounded-full px-3 py-1.5 bg-cream whitespace-nowrap"
+            >
+              ☎ Contact for price
+            </Link>
+          )}
+          <Link
+            href={`/shoe/${shoe.id}`}
+            className="text-[12.5px] font-bold text-accent-deep hover:underline whitespace-nowrap"
+          >
+            Details ↗
+          </Link>
+        </div>
 
-        {mode === "info" && (
-          <ul className="text-xs space-y-1.5 border-t border-neutral-100 pt-2">
-            {/* Producer site is admin-only — it's the procurement source and
-                the whole funnel exists to gate access to it. */}
-            {isAdmin && (
-              <li>
-                <a
-                  href={shoe.url}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="text-blue-700 hover:underline"
-                >
-                  Producer site →
-                </a>
-              </li>
-            )}
-            <li className="text-neutral-700">
-              {shoe.price_usd != null
-                ? `$${shoe.price_usd}`
-                : "Price unavailable"}
-            </li>
-            <li>
-              <a
-                href={reviewsUrl}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="text-blue-700 hover:underline"
+        {/* Sizes — only listed (not sold-out) sizes as chips. Coming-soon pairs
+            get the explicit "Coming in US" treatment from the mockup. */}
+        {sizes.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted mr-0.5">
+              {isComingSoon ? "Coming in US" : "US"}
+            </span>
+            {sizes.map((us) => (
+              <span
+                key={us}
+                className={
+                  isComingSoon
+                    ? "text-xs font-bold border-[1.5px] border-accent-deep/45 text-accent-deep bg-[#fff4ea] rounded-lg px-2 py-1"
+                    : "text-xs font-bold border-[1.5px] border-line text-[#4d493f] bg-cream rounded-lg px-2 py-1"
+                }
               >
-                Reviews →
-              </a>
-            </li>
-          </ul>
+                {us}
+              </span>
+            ))}
+          </div>
+        ) : shoe.sizes && shoe.sizes.trim() ? (
+          <p className="text-[11px] text-muted italic">
+            Sizes TBA ·{" "}
+            <span lang="am" style={{ fontFamily: ETHIOPIC_FONT }}>
+              መጠን በቅርቡ
+            </span>
+          </p>
+        ) : null}
+
+        {/* Admin-only: procurement source. shoe.url is blanked server-side for
+            everyone else (redactForViewer), this gate is belt-and-braces. */}
+        {isAdmin && shoe.url && (
+          <a
+            href={shoe.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-[11px] text-blue-700 hover:underline w-fit"
+          >
+            Producer site → (admin)
+          </a>
         )}
 
         {mode === "request" && (
-          <div className="space-y-2 border-t border-neutral-100 pt-2">
+          <div className="space-y-2 border-t border-line pt-2.5">
             <input
               type="text"
               value={size}
               onChange={(e) => setSize(e.target.value)}
               placeholder="Size (optional)"
-              className="w-full border border-neutral-300 rounded px-2 py-1 text-xs"
+              className="w-full border border-line bg-paper rounded-lg px-2.5 py-1.5 text-xs"
             />
             <input
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Notes (optional)"
-              className="w-full border border-neutral-300 rounded px-2 py-1 text-xs"
+              className="w-full border border-line bg-paper rounded-lg px-2.5 py-1.5 text-xs"
             />
             {err && <div className="text-xs text-red-600">{err}</div>}
-            <div className="flex gap-1">
+            <div className="flex gap-1.5">
               <button
                 type="button"
                 onClick={send}
                 disabled={loading}
-                className="flex-1 text-xs rounded-lg px-2 py-2.5 disabled:opacity-50 text-white bg-brand-espresso hover:bg-brand-coffee focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-amber transition-colors"
+                className="flex-1 text-[13px] font-extrabold rounded-xl px-2 py-2.5 disabled:opacity-50 text-cream bg-ink hover:bg-accent-deep focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent transition-colors"
               >
                 {loading ? "Sending..." : "Send request"}
               </button>
@@ -224,7 +312,7 @@ export function ShoeCard({
                 type="button"
                 onClick={() => setMode("idle")}
                 disabled={loading}
-                className="text-xs border border-neutral-300 rounded-lg px-2 py-2.5"
+                className="text-xs font-bold border-[1.5px] border-line rounded-xl px-3 py-2.5 hover:border-ink"
               >
                 Cancel
               </button>
@@ -232,275 +320,54 @@ export function ShoeCard({
           </div>
         )}
 
-        {/*
-          Action buttons row — items-stretch ensures equal height so the Amharic
-          CTA glyph (taller than Latin at the same font size) and the "Info" button
-          stay the same height. py-2.5 min gives ~44 px tap targets on mobile.
-        */}
+        {/* CTA row */}
         <div className="mt-auto flex items-stretch gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => setMode(mode === "info" ? "idle" : "info")}
-            className="flex-1 text-xs border border-neutral-300 rounded-lg px-2 py-2.5 hover:bg-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-amber"
-          >
-            {mode === "info" ? "Hide info" : "Info"}
-          </button>
           {alreadyRequested && shoe.status !== "sold" && (
-            <div className="flex-1 text-xs text-center text-neutral-500 border border-neutral-200 rounded-lg px-2 py-2.5">
-              Requested
+            <div className="flex-1 text-[13px] font-bold text-center text-accent-green border-[1.5px] border-accent-green/40 bg-[#e3f6ec] rounded-xl px-2 py-2.5">
+              Requested ✓
             </div>
           )}
           {canShowRequest && mode !== "request" && (
             /*
-              Reserve CTA — primary brand button.
-              Amharic: "ይያዙ" = "reserve / hold" (confirmed by owner).
-              Hover state uses Tailwind brand tokens (bg-brand-espresso hover:bg-brand-coffee)
-              so keyboard :focus-visible works correctly.
+              Interest CTA — same wiring as before (POST /api/interests then
+              router.refresh()). Mockup copy: solid ink "I want this · እፈልጋለሁ"
+              ("Reserve my size" for on-the-way pairs), outlined variant for
+              coming-soon ("vote with I want this").
             */
             <button
               type="button"
               onClick={() => setMode("request")}
-              className="flex-1 text-xs rounded-lg px-2 py-2.5 text-white font-medium bg-brand-espresso hover:bg-brand-coffee focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand-amber transition-colors"
-              aria-label="Reserve"
-              title="Reserve / ይያዙ"
+              className={`flex-1 flex items-center justify-center gap-1.5 text-[13.5px] font-extrabold rounded-xl px-2 py-3 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${
+                isComingSoon
+                  ? "border-[1.5px] border-ink text-ink hover:bg-ink hover:text-cream"
+                  : "bg-ink text-cream hover:bg-accent-deep"
+              }`}
+              title="I want this / እፈልጋለሁ"
             >
-              <span
-                lang="am"
-                style={{ fontFamily: "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif", lineHeight: 1.4 }}
-              >
-                ይያዙ
-              </span>
+              {section === "on-the-way" ? (
+                "Reserve my size"
+              ) : (
+                <>
+                  I want this ·{" "}
+                  <span
+                    lang="am"
+                    style={{ fontFamily: ETHIOPIC_FONT, lineHeight: 1.4 }}
+                  >
+                    እፈልጋለሁ
+                  </span>
+                </>
+              )}
             </button>
           )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// SizeStrip — display-only size availability grid
-// ---------------------------------------------------------------------------
-
-/**
- * Renders a compact, wrapping row of size chips (US primary, EU secondary).
- *
- * Phase 1: driven by shoe_sizes rows (per-size logistics status).
- * Each chip reflects the customer state derived from that size's logistics status:
- *   - in-stock    → solid green chip (arrived)
- *   - on-the-way  → gold accent chip (purchased)
- *   - coming-soon → muted neutral chip (in_cart or null)
- *   - sold-out    → greyed + line-through + aria-label "sold out" (delivered or absent)
- *
- * Falls back to free-text parseAvailableSizes if shoe_sizes is absent / empty
- * (shows all listed sizes as coming-soon, absent ones as sold-out).
- *
- * Empty / no parseable sizes → "Sizes TBA / መጠን በቅርቡ" (or omit if no sizes field).
- *
- * NOT interactive — do not add click handlers here.
- */
-function SizeStrip({
-  shoeSizes,
-  sizesText,
-}: {
-  shoeSizes: ShoeSize[] | undefined;
-  sizesText: string | null;
-}) {
-  // Prefer per-size DB rows when available.
-  const hasSizeRows = shoeSizes && shoeSizes.length > 0;
-
-  if (hasSizeRows) {
-    const grid = sizeGridFromSizes(shoeSizes!);
-
-    // If every size is sold-out (delivered + absent) and there are no listed
-    // coming-soon/on-the-way/in-stock, it still makes sense to show the grid —
-    // it tells the customer which sizes were offered (and are now gone).
-    // Only omit the strip if shoe_sizes itself is empty (handled above).
-
-    return (
-      <div className="border-t border-neutral-100 pt-2">
-        {/* Label row — bilingual, subtle */}
-        <p
-          className="text-[9px] uppercase tracking-wider text-neutral-400 mb-1.5 leading-none"
-          aria-hidden="true"
-        >
-          Sizes ·{" "}
-          <span
-            lang="am"
-            style={{
-              fontFamily:
-                "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif",
-            }}
-          >
-            መጠን
-          </span>
-        </p>
-
-        {/*
-          Chip grid — uses flex-wrap so chips reflow on narrow (2-up phone) cards.
-          Compact sizing: text-[11px] + px-1.5 py-0.5 keeps chips tidy while
-          remaining legible; 13 chips across a 160px card wrap to ≤3 rows.
-        */}
-        <div
-          className="flex flex-wrap gap-0.5"
-          role="list"
-          aria-label="Size availability"
-        >
-          {grid.map((entry) => {
-            const state = entry.customerState ?? "sold-out";
-            const isSoldOut = !entry.available || state === "sold-out";
-            const ariaLabel = isSoldOut
-              ? `US ${entry.us} / EU ${entry.eu} — sold out`
-              : state === "in-stock"
-              ? `US ${entry.us} / EU ${entry.eu} — in stock`
-              : state === "on-the-way"
-              ? `US ${entry.us} / EU ${entry.eu} — on the way`
-              : `US ${entry.us} / EU ${entry.eu}`;
-
-            // Chip background: per-state colour
-            const chipBg = isSoldOut
-              ? "bg-neutral-50 text-neutral-400"
-              : state === "in-stock"
-              ? "bg-[#1F7A52] text-white"
-              : state === "on-the-way"
-              ? "bg-[#E8B53A] text-neutral-900"
-              : "bg-neutral-100 text-neutral-700"; // coming-soon
-
-            return (
-              <span
-                key={entry.us}
-                role="listitem"
-                title={ariaLabel}
-                aria-label={ariaLabel}
-                className={[
-                  "inline-flex flex-col items-center leading-none rounded px-1.5 py-0.5",
-                  chipBg,
-                ].join(" ")}
-              >
-                <span
-                  className={[
-                    "text-[11px] font-medium",
-                    isSoldOut ? "line-through" : "",
-                  ].join(" ")}
-                >
-                  {entry.us}
-                </span>
-                <span
-                  className={[
-                    "text-[9px] leading-none mt-px",
-                    isSoldOut
-                      ? "text-neutral-300"
-                      : state === "in-stock"
-                      ? "text-white/80"
-                      : state === "on-the-way"
-                      ? "text-neutral-700"
-                      : "text-neutral-500",
-                  ].join(" ")}
-                >
-                  {entry.eu}
-                </span>
-              </span>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-
-  // Fallback: no shoe_sizes rows yet — use free-text field.
-  const hasUsableSizes = parseAvailableSizes(sizesText).size > 0;
-
-  if (!hasUsableSizes) {
-    if (!sizesText || !sizesText.trim()) {
-      // No sizes field at all — silently omit the strip.
-      return null;
-    }
-    // sizes field present but nothing mapped to grid — show TBA.
-    return (
-      <div className="border-t border-neutral-100 pt-2">
-        <p
-          className="text-[10px] text-neutral-400 italic"
-          aria-label="Size availability not yet specified"
-        >
-          Sizes TBA ·{" "}
-          <span
-            lang="am"
-            style={{
-              fontFamily:
-                "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif",
-            }}
-          >
-            መጠን በቅርቡ
-          </span>
-        </p>
-      </div>
-    );
-  }
-
-  // Legacy fallback: free-text sizes, no per-size status yet.
-  // Render as "coming-soon" for listed sizes, sold-out for others.
-  const grid = sizeGridFromSizes([]); // all sold-out baseline
-  const available = parseAvailableSizes(sizesText);
-
-  return (
-    <div className="border-t border-neutral-100 pt-2">
-      <p
-        className="text-[9px] uppercase tracking-wider text-neutral-400 mb-1.5 leading-none"
-        aria-hidden="true"
-      >
-        Sizes ·{" "}
-        <span
-          lang="am"
-          style={{
-            fontFamily:
-              "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif",
-          }}
-        >
-          መጠን
-        </span>
-      </p>
-      <div
-        className="flex flex-wrap gap-0.5"
-        role="list"
-        aria-label="Size availability"
-      >
-        {grid.map((entry) => {
-          const isAvailable = available.has(entry.us);
-          const ariaLabel = isAvailable
-            ? `US ${entry.us} / EU ${entry.eu}`
-            : `US ${entry.us} / EU ${entry.eu} — sold out`;
-          return (
-            <span
-              key={entry.us}
-              role="listitem"
-              title={ariaLabel}
-              aria-label={ariaLabel}
-              className={[
-                "inline-flex flex-col items-center leading-none rounded px-1.5 py-0.5",
-                isAvailable
-                  ? "bg-neutral-100 text-neutral-700"
-                  : "bg-neutral-50 text-neutral-400",
-              ].join(" ")}
+          {!signedIn && shoe.status !== "sold" && (
+            <Link
+              href="/auth/sign-in"
+              className="flex-1 text-center text-[13px] font-bold border-[1.5px] border-line text-muted rounded-xl px-2 py-3 hover:border-ink hover:text-ink transition-colors"
             >
-              <span
-                className={[
-                  "text-[11px] font-medium",
-                  isAvailable ? "" : "line-through",
-                ].join(" ")}
-              >
-                {entry.us}
-              </span>
-              <span
-                className={[
-                  "text-[9px] leading-none mt-px",
-                  isAvailable ? "text-neutral-500" : "text-neutral-300",
-                ].join(" ")}
-              >
-                {entry.eu}
-              </span>
-            </span>
-          );
-        })}
+              Sign in to reserve
+            </Link>
+          )}
+        </div>
       </div>
     </div>
   );

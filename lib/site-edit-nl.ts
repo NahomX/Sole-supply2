@@ -52,6 +52,8 @@ export type OwnerIntent =
   | { command: "set_sales"; args: { shoe_id: string; status: ShoeStatus } }
   | { command: "set_copy"; args: { key: SiteCopyKey; lang: SiteCopyLang; value: string } }
   | { command: "remove_shoe"; args: { shoe_id: string } }
+  | { command: "set_price_etb"; args: { shoe_id: string; price_etb: number | null } }
+  | { command: "clear_video"; args: { shoe_id: string } }
   | { clarify: string }
   | { error: "not_configured" }
   | { error: "parse_failed" };
@@ -71,18 +73,28 @@ const SUBMIT_TOOL: Anthropic.Tool = {
     properties: {
       command: {
         type: "string",
-        enum: ["edit_field", "set_sales", "set_copy", "remove_shoe", "clarify"],
+        enum: [
+          "edit_field",
+          "set_sales",
+          "set_copy",
+          "remove_shoe",
+          "set_price_etb",
+          "clear_video",
+          "clarify",
+        ],
         description:
           "edit_field: change a shoe's title/brand/price/notes. " +
           "set_sales: change a shoe's sales status. " +
           "set_copy: change a website copy string. " +
           "remove_shoe: hide a shoe from the storefront. " +
+          "set_price_etb: set (or clear) a shoe's customer-facing price in Ethiopian birr. " +
+          "clear_video: remove a shoe's hands-on video from the storefront. " +
           "clarify: the request is ambiguous or the target is unknown — ask a question instead.",
       },
       shoe_id: {
         type: "string",
         description:
-          "For edit_field / set_sales / remove_shoe: the id of the target shoe, taken verbatim from the provided shoe list. Omit for set_copy and clarify.",
+          "For edit_field / set_sales / remove_shoe / set_price_etb / clear_video: the id of the target shoe, taken verbatim from the provided shoe list. Omit for set_copy and clarify.",
       },
       field: {
         type: "string",
@@ -109,6 +121,11 @@ const SUBMIT_TOOL: Anthropic.Tool = {
         description:
           "For edit_field and set_copy: the new value to set. For price_usd, a bare number. Omit otherwise.",
       },
+      price_etb: {
+        type: "string",
+        description:
+          'For set_price_etb only: the new price in Ethiopian birr as a bare whole number (e.g. "18500"), or "none" to clear it.',
+      },
       question: {
         type: "string",
         description:
@@ -121,8 +138,11 @@ const SUBMIT_TOOL: Anthropic.Tool = {
 
 const SYSTEM_PROMPT =
   "You translate a sneaker-shop owner's plain-language instruction into exactly ONE structured ops action " +
-  "by calling the submit_intent tool. You can ONLY do four things: edit a shoe field (title, brand, price_usd, notes), " +
-  "set a shoe's sales status, set a website copy string, or remove (hide) a shoe. " +
+  "by calling the submit_intent tool. You can ONLY do six things: edit a shoe field (title, brand, price_usd, notes), " +
+  "set a shoe's sales status, set a website copy string, remove (hide) a shoe, " +
+  "set or clear a shoe's customer-facing birr price (set_price_etb), or clear a shoe's hands-on video (clear_video). " +
+  "Prices in birr/ETB (e.g. \"18500 birr\") mean set_price_etb; prices in USD/$ mean edit_field with field price_usd; " +
+  "if the currency is unclear, use clarify. " +
   "If the instruction maps cleanly to one of those, emit that command with its arguments. " +
   "To target a shoe you MUST pick its id from the provided shoe list by matching the owner's description to a title/brand. " +
   "If no shoe clearly matches, or the request is ambiguous, unsupported, or destructive in an unclear way, use command \"clarify\" and ask a short question. " +
@@ -228,6 +248,23 @@ export async function parseOwnerIntent(
         const shoe_id = asString(input.shoe_id);
         if (!shoe_id) return { error: "parse_failed" };
         return { command: "remove_shoe", args: { shoe_id } };
+      }
+      case "set_price_etb": {
+        const shoe_id = asString(input.shoe_id);
+        const raw = asString(input.price_etb);
+        if (!shoe_id || !raw) return { error: "parse_failed" };
+        const lower = raw.trim().toLowerCase();
+        if (lower === "none" || lower === "clear") {
+          return { command: "set_price_etb", args: { shoe_id, price_etb: null } };
+        }
+        const n = Number(raw.replace(/[,\s]/g, ""));
+        if (!Number.isFinite(n) || n <= 0) return { error: "parse_failed" };
+        return { command: "set_price_etb", args: { shoe_id, price_etb: n } };
+      }
+      case "clear_video": {
+        const shoe_id = asString(input.shoe_id);
+        if (!shoe_id) return { error: "parse_failed" };
+        return { command: "clear_video", args: { shoe_id } };
       }
       default:
         return { error: "parse_failed" };

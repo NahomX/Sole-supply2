@@ -16,8 +16,14 @@ export type Shoe = {
   brand: string | null;
   image_url: string | null;
   price_usd: number | null;
+  /** Admin-set local price in Ethiopian birr (migration 0012). Customer-facing:
+   * shown when set; "Contact for price" otherwise. Must be > 0 when set. */
+  price_etb: number | null;
   sizes: string | null;
   notes: string | null;
+  /** Public URL of the per-shoe hands-on video (migration 0012; usually in the
+   * 'shoe-videos' storage bucket). null = no video, storefront hides the play tile. */
+  video_url: string | null;
   status: ShoeStatus;
   // logistics_status has moved to shoe_sizes (per-size). shoes rows no longer
   // carry this field after migration 0005_shoe_sizes runs. Code that needs
