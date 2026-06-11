@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Noto_Sans_Ethiopic } from "next/font/google";
+import { Inter, Noto_Sans_Ethiopic, Unbounded } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
 import { AuthNav } from "@/components/AuthNav";
@@ -18,9 +18,18 @@ const ethiopic = Noto_Sans_Ethiopic({
   display: "swap",
 });
 
+// Unbounded — the redesign's display face (wordmark, headings, prices, stats,
+// marquee). Exposed as --font-display → Tailwind `font-display`.
+const unbounded = Unbounded({
+  subsets: ["latin"],
+  weight: ["500", "700", "900"],
+  variable: "--font-display",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "Berebaso",
-  description: "Curated sneakers, coming soon to Addis Ababa.",
+  description: "US sneakers, straight to Addis Ababa.",
 };
 
 export default async function RootLayout({
@@ -30,40 +39,84 @@ export default async function RootLayout({
 }) {
   const copy = await getSiteCopy();
   return (
-    <html lang="en" className={`${inter.variable} ${ethiopic.variable}`}>
+    <html
+      lang="en"
+      className={`${inter.variable} ${ethiopic.variable} ${unbounded.variable}`}
+    >
       <body className="font-sans min-h-screen flex flex-col">
-        <header className="border-b border-neutral-200">
-          <div className="max-w-6xl mx-auto px-4 py-5 flex items-center justify-between">
+        {/*
+          Sticky dark header (mockup): ink glass bar, BEREBASO በረባሶ wordmark,
+          anchor nav. Anchors are "/#..." (not "#...") because this header also
+          renders on /submit, /admin, /auth/* and /shoe/[id].
+          AuthNav is shared and untouched — .nav-auth (app/globals.css) recolors
+          its light-background text classes for the dark bar.
+        */}
+        <header className="sticky top-0 z-50 bg-ink/90 text-cream backdrop-blur-md border-b border-white/10">
+          <div className="max-w-7xl mx-auto px-4 md:px-7 py-4 flex items-center gap-6">
             {/*
-              Bilingual logo lockup: Latin "Berebaso" is the primary wordmark
-              (doubles as the social/domain handle). Amharic "በረባሶ" sits beside
-              it at a slightly smaller size for bilingual brand recognition.
+              Bilingual wordmark: Latin "BEREBASO" in the display face, Amharic
+              "በረባሶ" beside it in accent amber.
               Brand spelling "በረባሶ" confirmed correct by the owner (native speaker).
             */}
-            <Link href="/" className="flex items-baseline gap-2">
-              <span className="text-xl font-semibold tracking-tight">Berebaso</span>
+            <Link href="/" className="flex items-baseline gap-2.5 shrink-0">
+              <span className="font-display text-lg font-black tracking-wide">
+                BEREBASO
+              </span>
               <span
                 lang="am"
-                className="text-base font-medium text-neutral-500"
-                style={{ fontFamily: "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif", lineHeight: 1.4 }}
+                className="text-accent-amber text-[15px] font-semibold"
+                style={{
+                  fontFamily:
+                    "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif",
+                  lineHeight: 1.4,
+                }}
               >
                 በረባሶ
               </span>
             </Link>
-            <AuthNav />
+            <nav className="hidden md:flex items-center gap-5 ml-auto text-[13.5px] font-semibold">
+              <Link href="/#in-stock" className="text-cream/70 hover:text-cream">
+                In stock
+              </Link>
+              <Link href="/#on-the-way" className="text-cream/70 hover:text-cream">
+                On the way
+              </Link>
+              <Link href="/#coming-soon" className="text-cream/70 hover:text-cream">
+                Coming soon
+              </Link>
+              <Link href="/#how" className="text-cream/70 hover:text-cream">
+                How it works
+              </Link>
+              <Link href="/#visit" className="text-cream/70 hover:text-cream">
+                Visit us
+              </Link>
+            </nav>
+            <div className="nav-auth ml-auto md:ml-0">
+              <AuthNav />
+            </div>
           </div>
         </header>
         <main className="flex-1">{children}</main>
-        <footer className="border-t border-neutral-200 text-sm text-neutral-500">
-          <div className="max-w-6xl mx-auto px-4 py-6 flex items-baseline gap-2">
-            <span>Berebaso</span>
-            <span
-              lang="am"
-              style={{ fontFamily: "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif", lineHeight: 1.4 }}
-            >
-              በረባሶ
+        {/* Dark footer (mockup) — keeps the editable site-copy "footer" key. */}
+        <footer className="bg-ink text-cream/55 border-t border-white/10 text-[13px]">
+          <div className="max-w-7xl mx-auto px-4 md:px-7 py-8 flex flex-wrap items-center justify-between gap-3">
+            <span className="flex items-baseline gap-2">
+              <span className="font-display text-sm font-bold text-cream">
+                BEREBASO
+              </span>
+              <span
+                lang="am"
+                className="text-accent-amber"
+                style={{
+                  fontFamily:
+                    "var(--font-ethiopic), 'Abyssinica SIL', 'Nyala', sans-serif",
+                  lineHeight: 1.4,
+                }}
+              >
+                በረባሶ
+              </span>
             </span>
-            <span>· {getCopy(copy, "footer", "en")}</span>
+            <span>{getCopy(copy, "footer", "en")} · US-authentic sneakers</span>
           </div>
         </footer>
       </body>

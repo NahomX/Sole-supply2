@@ -379,6 +379,121 @@ export async function updateShoeField(
 }
 
 // ---------------------------------------------------------------------------
+// setPriceEtb / setVideoUrl — storefront-redesign fields (migration 0012).
+// Dedicated setters (not EditableShoeField entries) so the bot field-token
+// maps and the NL SHOE_FIELDS mirror stay unchanged until those layers opt in.
+// Both follow updateShoeField's conventions: validate → before-fetch →
+// update → ops feed → 'shoe_edit' audit event.
+// ---------------------------------------------------------------------------
+
+/**
+ * Set the admin-controlled birr price on a shoe. Pass null to clear it (the
+ * storefront then shows "Contact for price"). Must be a finite number > 0
+ * when set (mirrors the shoes_price_etb_check DB constraint).
+ * Records a 'shoe_edit' audit event (price_etb old → new) and posts a
+ * one-line ops-feed summary.
+ */
+export async function setPriceEtb(
+  shoeId: string,
+  priceEtb: number | null,
+  meta?: FeedMeta
+): Promise<UpdateResult> {
+  if (priceEtb !== null && (!Number.isFinite(priceEtb) || priceEtb <= 0)) {
+    return { shoe: null, error: "invalid price_etb" };
+  }
+
+  const db = supabaseService();
+
+  // Fetch current value so the audit event records the real transition.
+  const { data: before } = await db
+    .from("shoes")
+    .select("title,price_etb")
+    .eq("id", shoeId)
+    .single();
+  const prev = (before as { price_etb: number | null } | null)?.price_etb ?? null;
+
+  const { data, error } = await db
+    .from("shoes")
+    .update({ price_etb: priceEtb })
+    .eq("id", shoeId)
+    .select()
+    .single();
+  if (error) return { shoe: null, error: error.message };
+  const shoe = data as Shoe;
+
+  await postOpsFeed(
+    `\u{270F}\u{FE0F} ${shoe.title} \u{2014} price_etb \u{2192} ${
+      priceEtb ?? "cleared"
+    }${buildFeedSuffix(meta)}`
+  );
+
+  // Audit event: record the field edit.
+  await insertEvent({
+    shoeId,
+    eventType: "shoe_edit",
+    fromValue: prev === null ? null : String(prev),
+    toValue: priceEtb === null ? null : String(priceEtb),
+    meta,
+  });
+
+  return { shoe, error: null };
+}
+
+/**
+ * Set the hands-on video URL on a shoe. Pass null (or "") to clear it (the
+ * storefront then hides the play tile). Must be an http(s) URL when set —
+ * normally the public URL of an object in the 'shoe-videos' storage bucket.
+ * Records a 'shoe_edit' audit event (video_url old → new) and posts a
+ * one-line ops-feed summary.
+ */
+export async function setVideoUrl(
+  shoeId: string,
+  videoUrl: string | null,
+  meta?: FeedMeta
+): Promise<UpdateResult> {
+  const newValue = videoUrl?.trim() ? videoUrl.trim() : null;
+  if (newValue !== null && !/^https?:\/\//i.test(newValue)) {
+    return { shoe: null, error: "invalid video_url" };
+  }
+
+  const db = supabaseService();
+
+  // Fetch current value so the audit event records the real transition.
+  const { data: before } = await db
+    .from("shoes")
+    .select("title,video_url")
+    .eq("id", shoeId)
+    .single();
+  const prev = (before as { video_url: string | null } | null)?.video_url ?? null;
+
+  const { data, error } = await db
+    .from("shoes")
+    .update({ video_url: newValue })
+    .eq("id", shoeId)
+    .select()
+    .single();
+  if (error) return { shoe: null, error: error.message };
+  const shoe = data as Shoe;
+
+  await postOpsFeed(
+    `\u{1F3AC} ${shoe.title} \u{2014} video ${
+      newValue === null ? "cleared" : "attached"
+    }${buildFeedSuffix(meta)}`
+  );
+
+  // Audit event: record the field edit.
+  await insertEvent({
+    shoeId,
+    eventType: "shoe_edit",
+    fromValue: prev,
+    toValue: newValue,
+    meta,
+  });
+
+  return { shoe, error: null };
+}
+
+// ---------------------------------------------------------------------------
 // softRemoveShoe — hide a shoe from the storefront without deleting the row.
 // ---------------------------------------------------------------------------
 
@@ -755,7 +870,7 @@ export async function getPublicShoes(filter?: {
   const db = supabaseService();
   let q = db
     .from("shoes")
-    .select("id,title,brand,image_url,price_usd,sizes,notes,status,created_at,shoe_sizes(*)")
+    .select("id,title,brand,image_url,price_usd,price_etb,video_url,sizes,notes,status,created_at,shoe_sizes(*)")
     .is("removed_at", null)
     .order("created_at", { ascending: false });
   if (filter?.status) {

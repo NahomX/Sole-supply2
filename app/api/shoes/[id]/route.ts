@@ -46,12 +46,32 @@ export async function PATCH(
     }
   }
 
-  // Scalar field updates (price_usd, sizes, notes) — direct DB write.
-  // If sizes is updated, also sync shoe_sizes rows.
+  // Scalar field updates (price_usd, price_etb, video_url, sizes, notes) —
+  // direct DB write. If sizes is updated, also sync shoe_sizes rows.
   const patch: Record<string, unknown> = {};
   if (typeof body.price_usd === "number") patch.price_usd = body.price_usd;
   if (typeof body.sizes === "string") patch.sizes = body.sizes;
   if (typeof body.notes === "string") patch.notes = body.notes;
+  // price_etb / video_url (migration 0012). Admin-only like the rest of this
+  // route. Explicit null clears the value (storefront then falls back to
+  // "Contact for price" / no play tile).
+  if (typeof body.price_etb === "number" || body.price_etb === null) {
+    if (
+      body.price_etb !== null &&
+      (!Number.isFinite(body.price_etb) || body.price_etb <= 0)
+    ) {
+      // Mirrors the shoes_price_etb_check DB constraint (> 0 when set).
+      return NextResponse.json({ error: "invalid price_etb" }, { status: 400 });
+    }
+    patch.price_etb = body.price_etb;
+  }
+  if (typeof body.video_url === "string" || body.video_url === null) {
+    const trimmed = typeof body.video_url === "string" ? body.video_url.trim() : null;
+    if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+      return NextResponse.json({ error: "invalid video_url" }, { status: 400 });
+    }
+    patch.video_url = trimmed || null;
+  }
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: "nothing to update" }, { status: 400 });

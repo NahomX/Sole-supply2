@@ -73,16 +73,35 @@
  *     cp_key:{key}                     — copy key selected → EN/AM
  *     cp_lang:{key}:{lang}             — language chosen → ForceReply for value
  *
- * Stateless free-text capture (no session store): /edit text fields and /copy
- * send a ForceReply whose visible text embeds a parseable tag, e.g.
+ * Ops bot — storefront-redesign commands (admin-gated):
+ *   /setprice:
+ *     setp_pick:{shoeId}               — shoe selected → ForceReply for the birr
+ *                                        amount ([setprice:{shoeId}] tag)
+ *   video upload (admin sends a video → shoe picker replies to it):
+ *     vid_pick:{shoeId}                — shoe selected → read the video from the
+ *                                        picker's reply_to_message, download via
+ *                                        getFile, upload to the 'shoe-videos'
+ *                                        bucket, setVideoUrl
+ *   /clearvideo:
+ *     vidclr_pick:{shoeId}             — shoe selected → clear video_url
+ *
+ * Stateless free-text capture (no session store): /edit text fields, /copy and
+ * /setprice send a ForceReply whose visible text embeds a parseable tag, e.g.
  *   "✏️ New price for <title> [id:<shoeId>] — reply with the value"
  *   "📝 New section_available (en) — reply with the value [copy:section_available:en]"
+ *   "💵 New price (birr) for <title> — ... [setprice:<shoeId>]"
  * The ops-bot message:text handler matches replies via reply_to_message.text,
  * parses the tag, and dispatches. This is the only ops-bot message:text handler.
+ *
+ * Stateless video capture: an admin-sent video has no callback_data budget for
+ * the file_id, so the shoe-picker message is sent as a REPLY to the video; the
+ * vid_pick handler recovers the file_id from
+ * ctx.callbackQuery.message.reply_to_message.video (or .document).
  *
  * UUID shoeId is 36 chars; longest usSize is "10.5" (4 chars); longest status
  * is "delivered" (9 chars). Longest callback: ops_log_st:36:4:9 = 56 bytes.
  * Phase B longest: edit_sales:36:9 = 57 bytes; cp_lang:18:2 = 29 bytes.
+ * Redesign longest: vidclr_pick:36 = 48 bytes.
  */
 
 import { Bot, Context, InlineKeyboard } from "grammy";
@@ -101,10 +120,13 @@ import {
   setSalesStatus,
   syncSizesFromText,
   updateShoeField,
+  setPriceEtb,
+  setVideoUrl,
   softRemoveShoe,
   STATUSES,
   LOGISTICS,
 } from "@/lib/shoes";
+import { uploadShoeVideo } from "@/lib/storage";
 import type { FeedMeta, EditableShoeField } from "@/lib/shoes";
 import { getSiteCopy, getCopy, setCopy } from "@/lib/site-copy";
 import type { SiteCopyKey, SiteCopyLang } from "@/lib/site-copy";
@@ -201,6 +223,16 @@ function summarizeNlCommand(cmd: NlCommand, shoeTitleById: Map<string, string>):
     case "remove_shoe": {
       const title = shoeTitleById.get(cmd.args.shoe_id) ?? cmd.args.shoe_id;
       return `Remove "${title}" (hide from the storefront)`;
+    }
+    case "set_price_etb": {
+      const title = shoeTitleById.get(cmd.args.shoe_id) ?? cmd.args.shoe_id;
+      return cmd.args.price_etb === null
+        ? `Clear the birr price of "${title}"`
+        : `Set the price of "${title}" to ብር ${cmd.args.price_etb}`;
+    }
+    case "clear_video": {
+      const title = shoeTitleById.get(cmd.args.shoe_id) ?? cmd.args.shoe_id;
+      return `Clear the video of "${title}"`;
     }
   }
 }
@@ -382,7 +414,8 @@ export function registerCustomerBot(bot: Bot, _entry: BotEntry) {
     }
     const label = status === "available" ? "Available now" : "Coming soon";
     const lines = shoes.map((s) => {
-      const price = s.price_usd != null ? ` — $${s.price_usd}` : "";
+      // Customers only ever see the admin-set birr price — never USD.
+      const price = s.price_etb != null ? ` — ብር ${s.price_etb}` : "";
       const brand = s.brand ? `[${s.brand}] ` : "";
       return `• ${brand}${s.title}${price}`;
     });
@@ -853,9 +886,12 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
         "/sales — manage sales status\n" +
         "/logistics — per-size drill-down: pick shoe → size → status\n" +
         "/edit — edit a shoe (title, brand, price, sizes, notes, sales status)\n" +
+        "/setprice — set the customer-facing birr price for a shoe\n" +
+        "/clearvideo — remove a shoe's hands-on video\n" +
         "/remove — hide a shoe from the storefront\n" +
         "/copy — edit website copy (hero, sections, footer)\n" +
         "/help — this message\n\n" +
+        "Send a video (up to ~19MB) to attach it to a shoe.\n\n" +
         "Tip: when enabled, you can also just type a plain instruction " +
         '(e.g. "mark the Jordan 1s as sold") and confirm the change.'
     );
@@ -876,10 +912,13 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
         "/sales — change sales status\n" +
         "/logistics — per-size drill-down: pick shoe → pick size → pick status (or clear)\n" +
         "/edit — pick a shoe → edit title, brand, price, sizes, notes, or sales status\n" +
+        "/setprice — pick a shoe → reply with the birr amount (or \"none\" to clear)\n" +
+        "/clearvideo — pick a shoe → remove its hands-on video\n" +
         "/remove — pick a shoe → confirm → hide it from the storefront (soft-remove)\n" +
         "/copy — edit website copy: pick a key → EN/AM → reply with the new value\n" +
+        "Send a video (up to ~19MB) → pick the shoe → it's attached to the storefront\n" +
         "Plain text — when natural-language editing is enabled, type an instruction " +
-        "(e.g. \"set the price of the Dunks to 220\") and confirm before it applies"
+        "(e.g. \"set the price of the Dunks to 18500 birr\") and confirm before it applies"
     );
   });
 
@@ -1302,6 +1341,192 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
     );
   });
 
+  // ----- /setprice — customer-facing birr price ---------------------------
+  bot.command("setprice", async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) return;
+    const { shoes, error } = await getAllShoes();
+    if (error) {
+      await ctx.reply("Error fetching shoes.");
+      return;
+    }
+    if (shoes.length === 0) {
+      await ctx.reply("No shoes.");
+      return;
+    }
+    await ctx.reply("Pick a shoe to set its birr price:", {
+      reply_markup: buildShoePickerKb(shoes, "setp_pick"),
+    });
+  });
+
+  // Shoe selected → ForceReply for the birr amount (stateless [setprice:] tag).
+  bot.callbackQuery(/^setp_pick:(.+)$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const shoeId = ctx.match[1];
+    const { shoes } = await getAllShoes();
+    const shoe = shoes.find((s) => s.id === shoeId);
+    const title = shoe?.title ?? "this shoe";
+    const current = shoe?.price_etb != null ? `ብር ${shoe.price_etb}` : "not set";
+    await ctx.reply(
+      `💵 New price (birr) for ${title} — current: ${current}. Reply with a whole birr amount (e.g. 18500), or "none" to clear. [setprice:${shoeId}]`,
+      { reply_markup: { force_reply: true } }
+    );
+  });
+
+  // ----- Video upload — send a video, then pick the shoe -------------------
+  //
+  // A Telegram file_id does not fit the 64-byte callback_data budget, so the
+  // shoe-picker message is sent as a REPLY to the admin's video message; the
+  // vid_pick handler recovers the file from the picker's reply_to_message.
+
+  /** Telegram's bot-API getFile cap is 20MB — stay under it with margin. */
+  const MAX_VIDEO_BYTES = 19 * 1024 * 1024;
+  const VIDEO_TOO_BIG_MSG =
+    "That video is over Telegram's 20MB bot download limit. " +
+    "Please compress or trim it to under 19MB and send it again.";
+
+  /** Shared receive path for message:video and video-typed message:document. */
+  async function handleIncomingVideo(ctx: Context, fileSize: number | undefined) {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) return;
+    if (fileSize !== undefined && fileSize > MAX_VIDEO_BYTES) {
+      await ctx.reply(VIDEO_TOO_BIG_MSG);
+      return;
+    }
+    const { shoes, error } = await getAllShoes();
+    if (error) {
+      await ctx.reply("Error fetching shoes.");
+      return;
+    }
+    if (shoes.length === 0) {
+      await ctx.reply("No shoes to attach this video to.");
+      return;
+    }
+    await ctx.reply("Pick the shoe to attach this video to:", {
+      reply_markup: buildShoePickerKb(shoes, "vid_pick"),
+      reply_parameters: { message_id: ctx.message!.message_id },
+    });
+  }
+
+  bot.on("message:video", async (ctx) => {
+    await handleIncomingVideo(ctx, ctx.message.video.file_size);
+  });
+
+  // Videos sent "as file" arrive as documents with a video/* mime type.
+  bot.on("message:document", async (ctx) => {
+    const doc = ctx.message.document;
+    if (!doc.mime_type?.startsWith("video/")) return;
+    await handleIncomingVideo(ctx, doc.file_size);
+  });
+
+  // Shoe selected → download the video from Telegram, upload to the
+  // 'shoe-videos' bucket (service-role only), then setVideoUrl.
+  bot.callbackQuery(/^vid_pick:(.+)$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const shoeId = ctx.match[1];
+
+    // Recover the video from the picker's reply_to_message (stateless).
+    const pickerMsg = ctx.callbackQuery.message;
+    const src =
+      pickerMsg && "reply_to_message" in pickerMsg
+        ? pickerMsg.reply_to_message
+        : undefined;
+    const video = src?.video;
+    const doc = src?.document?.mime_type?.startsWith("video/")
+      ? src.document
+      : undefined;
+    const fileId = video?.file_id ?? doc?.file_id;
+    if (!fileId) {
+      await ctx.reply(
+        "I couldn't find the original video for this picker — please send the video again."
+      );
+      return;
+    }
+    const fileSize = video?.file_size ?? doc?.file_size;
+    if (fileSize !== undefined && fileSize > MAX_VIDEO_BYTES) {
+      await ctx.reply(VIDEO_TOO_BIG_MSG);
+      return;
+    }
+    const contentType = video?.mime_type ?? doc?.mime_type ?? "video/mp4";
+
+    // Dismiss the picker, then status-message + edit (incart "Scraping..." pattern).
+    await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+    const status = await ctx.reply("Uploading video…");
+    const done = (text: string) =>
+      ctx.api.editMessageText(status.chat.id, status.message_id, text);
+
+    try {
+      const file = await ctx.api.getFile(fileId);
+      if (!file.file_path) {
+        await done("Telegram did not return a download path for that video. Please try again.");
+        return;
+      }
+      const res = await fetch(
+        `https://api.telegram.org/file/bot${bot.token}/${file.file_path}`
+      );
+      if (!res.ok) {
+        await done(`Error downloading the video from Telegram (HTTP ${res.status}).`);
+        return;
+      }
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const upload = await uploadShoeVideo(shoeId, buffer, contentType);
+      if (upload.error !== null) {
+        await done(`Error uploading to storage: ${upload.error}`);
+        return;
+      }
+      const result = await setVideoUrl(shoeId, upload.url, botMeta(ctx, entry.name));
+      if (result.error) {
+        await done(`Error: ${result.error}`);
+        return;
+      }
+      await done(
+        `Video attached to "${result.shoe!.title}".\n${upload.url}`
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "unknown error";
+      await done(`Error attaching the video: ${msg}`);
+    }
+  });
+
+  // ----- /clearvideo --------------------------------------------------------
+  bot.command("clearvideo", async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) return;
+    const { shoes, error } = await getAllShoes();
+    if (error) {
+      await ctx.reply("Error fetching shoes.");
+      return;
+    }
+    const withVideo = shoes.filter((s) => s.video_url != null);
+    if (withVideo.length === 0) {
+      await ctx.reply("No shoes have a video attached.");
+      return;
+    }
+    await ctx.reply("Pick a shoe to remove its video:", {
+      reply_markup: buildShoePickerKb(withVideo, "vidclr_pick"),
+    });
+  });
+
+  bot.callbackQuery(/^vidclr_pick:(.+)$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const shoeId = ctx.match[1];
+    const result = await setVideoUrl(shoeId, null, botMeta(ctx, entry.name));
+    if (result.error) {
+      await ctx.reply(`Error: ${result.error}`);
+      return;
+    }
+    await ctx.reply(`Video cleared for "${result.shoe!.title}".`);
+  });
+
   // ----- Tier-2 natural-language flow ------------------------------------
   // Maps the LLM intent's shoe field token back onto the Tier-1 helper call.
 
@@ -1410,6 +1635,28 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
         await ctx.reply("Done — the shoe is now hidden from the storefront.");
         return;
       }
+      case "set_price_etb": {
+        const result = await setPriceEtb(cmd.args.shoe_id, cmd.args.price_etb, meta);
+        if (result.error) {
+          await ctx.reply(`Error: ${result.error}`);
+          return;
+        }
+        await ctx.reply(
+          cmd.args.price_etb === null
+            ? `Price cleared for "${result.shoe!.title}".`
+            : `Price set for "${result.shoe!.title}" — ብር ${cmd.args.price_etb}`
+        );
+        return;
+      }
+      case "clear_video": {
+        const result = await setVideoUrl(cmd.args.shoe_id, null, meta);
+        if (result.error) {
+          await ctx.reply(`Error: ${result.error}`);
+          return;
+        }
+        await ctx.reply(`Video cleared for "${result.shoe!.title}".`);
+        return;
+      }
     }
   }
 
@@ -1443,7 +1690,8 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
   // -------------------------------------------------------------------------
   // Stateless free-text capture — the ONLY ops-bot message:text handler.
   // Two paths, mutually exclusive on whether the message is a reply:
-  //  • Reply carrying an [edit:...]/[copy:...] tag → Tier-1 ForceReply capture.
+  //  • Reply carrying an [edit:...]/[copy:...]/[setprice:...] tag → Tier-1
+  //    ForceReply capture.
   //  • Plain free text (no reply, not a slash command) → Tier-2 natural-language
   //    intent: parse with Claude, then ask for an explicit Yes/No confirmation
   //    before any change is applied (see the nl_yes/nl_no callbacks below).
@@ -1462,13 +1710,42 @@ export function registerOpsBot(bot: Bot, entry: BotEntry) {
 
     const editMatch = promptText.match(/\[edit:([^:\]]+):([^\]]+)\]/);
     const copyMatch = promptText.match(/\[copy:([^:\]]+):(en|am)\]/);
-    if (!editMatch && !copyMatch) return; // Not one of our prompts → ignore.
+    const setPriceMatch = promptText.match(/\[setprice:([^\]]+)\]/);
+    if (!editMatch && !copyMatch && !setPriceMatch) return; // Not one of our prompts → ignore.
 
     // Re-verify admin before mutating.
     if (!(await guardAllowlist(ctx, entry.name, "admin"))) return;
 
     const value = ctx.message.text.trim();
     const meta = botMeta(ctx, entry.name);
+
+    if (setPriceMatch) {
+      const shoeId = setPriceMatch[1];
+      const lower = value.toLowerCase();
+      if (lower === "none" || lower === "clear") {
+        const result = await setPriceEtb(shoeId, null, meta);
+        if (result.error) {
+          await ctx.reply(`Error: ${result.error}`);
+          return;
+        }
+        await ctx.reply(`Price cleared for "${result.shoe!.title}".`);
+        return;
+      }
+      const digits = value.replace(/[,\s]/g, "");
+      if (!/^\d+$/.test(digits) || Number(digits) <= 0) {
+        await ctx.reply(
+          'Please reply with a positive whole birr amount (e.g. 18500), or "none" to clear the price.'
+        );
+        return;
+      }
+      const result = await setPriceEtb(shoeId, Number(digits), meta);
+      if (result.error) {
+        await ctx.reply(`Error: ${result.error}`);
+        return;
+      }
+      await ctx.reply(`Price set for "${result.shoe!.title}" — ብር ${Number(digits)}`);
+      return;
+    }
 
     if (editMatch) {
       const token = editMatch[1];
