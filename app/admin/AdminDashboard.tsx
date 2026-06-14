@@ -787,9 +787,12 @@ function ShoeRow({
 
       {/* Per-size logistics editor */}
       <div className="border-t border-neutral-100 pt-3">
-        <div className="text-[11px] uppercase tracking-wider text-neutral-500 mb-2">
-          Sizes &amp; logistics
-        </div>
+        {/* Heading row with optional batch quick-action button */}
+        <BatchQuickAction
+          sizes={sizes}
+          loading={loading}
+          onSetSizeStatus={onSetSizeStatus}
+        />
 
         {sizes.length === 0 && !isAdmin && (
           <div className="text-xs text-neutral-400 italic">
@@ -943,6 +946,135 @@ function EventRow({ event }: { event: ShoeEvent }) {
 }
 
 // ---------------------------------------------------------------------------
+// Quick-action helpers — derive next logical status for a chip
+// ---------------------------------------------------------------------------
+
+/** Returns the next actionable logistics status, or null if no quick action. */
+function nextLogisticsStatus(
+  current: LogisticsStatus | null
+): LogisticsStatus | null {
+  switch (current) {
+    case "in_cart":
+      return "purchased";
+    case "purchased":
+      return "arrived";
+    case "arrived":
+      return "delivered";
+    default:
+      return null;
+  }
+}
+
+/** Human-readable label for the quick-action button. */
+function quickActionLabel(next: LogisticsStatus): string {
+  switch (next) {
+    case "purchased":
+      return "Purchased";
+    case "arrived":
+      return "Arrived";
+    case "delivered":
+      return "Delivered";
+    default:
+      return next;
+  }
+}
+
+/** Button colour for the quick-action: green for arrived, gold for purchased,
+ *  neutral-dark for delivered (muted terminal state). */
+function quickActionStyle(next: LogisticsStatus): string {
+  switch (next) {
+    case "arrived":
+      return "bg-[#1F7A52] text-white hover:bg-[#195f40]";
+    case "purchased":
+      return "bg-[#E8B53A] text-neutral-900 hover:bg-[#d4a030]";
+    case "delivered":
+      return "bg-neutral-700 text-white hover:bg-neutral-800";
+    default:
+      return "bg-neutral-200 text-neutral-700";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// BatchQuickAction — "Mark all arrived / delivered" heading + button
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders the "Sizes & logistics" section heading plus an optional batch
+ * quick-action button when multiple sizes share the same actionable status.
+ * For example, if 3 sizes are all "purchased" → shows "Arrived all (3)".
+ * Requires confirmation before firing to prevent accidental mass updates.
+ */
+function BatchQuickAction({
+  sizes,
+  loading,
+  onSetSizeStatus,
+}: {
+  sizes: ShoeSize[];
+  loading: boolean;
+  onSetSizeStatus: (usSize: string, ls: LogisticsStatus | null) => void;
+}) {
+  // Find the most-common actionable status across sizes (only counts statuses
+  // that have a logical next step: in_cart, purchased, arrived).
+  const actionableSizes = sizes.filter(
+    (sz) => nextLogisticsStatus(sz.logistics_status) !== null
+  );
+
+  // Group actionable sizes by their CURRENT status.
+  const groups = new Map<LogisticsStatus, ShoeSize[]>();
+  for (const sz of actionableSizes) {
+    const cur = sz.logistics_status as LogisticsStatus;
+    const existing = groups.get(cur) ?? [];
+    groups.set(cur, [...existing, sz]);
+  }
+
+  // Pick the group with the most members (tie-break: earlier in pipeline).
+  const pipeline: LogisticsStatus[] = ["in_cart", "purchased", "arrived"];
+  let bestStatus: LogisticsStatus | null = null;
+  let bestGroup: ShoeSize[] = [];
+  for (const status of pipeline) {
+    const group = groups.get(status) ?? [];
+    if (group.length > bestGroup.length) {
+      bestStatus = status;
+      bestGroup = group;
+    }
+  }
+
+  const showBatch = bestStatus !== null && bestGroup.length > 1;
+  const batchNext = bestStatus ? nextLogisticsStatus(bestStatus) : null;
+
+  async function handleBatch() {
+    if (!batchNext || !bestStatus) return;
+    const label = quickActionLabel(batchNext);
+    const confirmed = confirm(
+      `Mark all ${bestGroup.length} size${bestGroup.length === 1 ? "" : "s"} as "${label}"?`
+    );
+    if (!confirmed) return;
+    for (const sz of bestGroup) {
+      onSetSizeStatus(sz.us_size, batchNext);
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between mb-2">
+      <div className="text-[11px] uppercase tracking-wider text-neutral-500">
+        Sizes &amp; logistics
+      </div>
+      {showBatch && batchNext && (
+        <button
+          type="button"
+          onClick={handleBatch}
+          disabled={loading}
+          className={`rounded px-2.5 py-1 text-[10px] font-semibold leading-none disabled:opacity-50 transition-colors ${quickActionStyle(batchNext)}`}
+          title={`Mark all ${bestGroup.length} sizes at "${bestStatus}" as "${batchNext}"`}
+        >
+          {quickActionLabel(batchNext)} all ({bestGroup.length})
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // SizeStatusChip — one chip per shoe_sizes row in the admin editor
 // ---------------------------------------------------------------------------
 
@@ -959,6 +1091,8 @@ function SizeStatusChip({
   onSetStatus: (ls: LogisticsStatus | null) => void;
   onRemove?: () => void;
 }) {
+  const next = nextLogisticsStatus(sz.logistics_status);
+
   // Colour encodes customer-visible state:
   // arrived → green; purchased → gold; in_cart/null → neutral; delivered → muted
   const chipColor =
@@ -972,26 +1106,49 @@ function SizeStatusChip({
 
   return (
     <div
-      className={`inline-flex flex-col items-center rounded border px-2 py-1 gap-0.5 ${chipColor}`}
+      className={`inline-flex flex-col items-center rounded border px-2 py-1 gap-1 ${chipColor}`}
     >
       <span className="text-xs font-medium">US {sz.us_size}</span>
-      {/* Status selector — shipper + admin */}
-      <select
-        value={sz.logistics_status ?? ""}
-        onChange={(e) =>
-          onSetStatus((e.target.value || null) as LogisticsStatus | null)
-        }
-        disabled={loading}
-        className="text-[10px] border-0 bg-transparent p-0 cursor-pointer focus:outline-none"
-        aria-label={`Logistics status for US ${sz.us_size}`}
-      >
-        <option value="">— none</option>
-        {LOGISTICS.map((ls) => (
-          <option key={ls} value={ls}>
-            {ls}
-          </option>
-        ))}
-      </select>
+
+      {/* Quick-action button — primary interaction, most prominent */}
+      {next && (
+        <button
+          type="button"
+          onClick={() => onSetStatus(next)}
+          disabled={loading}
+          className={`rounded px-2 py-0.5 text-[10px] font-semibold leading-none disabled:opacity-50 transition-colors ${quickActionStyle(next)}`}
+          aria-label={`Mark US ${sz.us_size} as ${next}`}
+        >
+          {quickActionLabel(next)}
+        </button>
+      )}
+
+      {/* Current status label (shipper view) OR dropdown (admin view) */}
+      {isAdmin ? (
+        /* Admin: keep the full dropdown but de-emphasise it below the quick-action button */
+        <select
+          value={sz.logistics_status ?? ""}
+          onChange={(e) =>
+            onSetStatus((e.target.value || null) as LogisticsStatus | null)
+          }
+          disabled={loading}
+          className="text-[10px] border-0 bg-transparent p-0 cursor-pointer focus:outline-none opacity-70"
+          aria-label={`Logistics status for US ${sz.us_size}`}
+        >
+          <option value="">— none</option>
+          {LOGISTICS.map((ls) => (
+            <option key={ls} value={ls}>
+              {ls}
+            </option>
+          ))}
+        </select>
+      ) : (
+        /* Shipper: show current status as a plain label — no dropdown needed */
+        <span className="text-[10px] opacity-75">
+          {sz.logistics_status ?? "none"}
+        </span>
+      )}
+
       {/* Remove button — admin only */}
       {isAdmin && onRemove && (
         <button
