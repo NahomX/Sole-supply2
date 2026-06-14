@@ -2,17 +2,17 @@
  * lib/shoe-matcher.ts — AI vision matching of a photo against shoe catalog candidates.
  *
  * `matchPhotoToShoes` downloads each candidate's image_url, passes everything
- * to Claude claude-sonnet-4-20250514 as inline base64 images, and asks the model
- * to identify which catalog shoe(s) the uploaded photo shows.
+ * to Gemini 2.5 Flash as inline base64 images, and asks the model to identify
+ * which catalog shoe(s) the uploaded photo shows.
  *
  * Constraints:
  *  - Candidates with no image_url are silently skipped.
  *  - At most MAX_CANDIDATES shoes are sent to the model (token budget).
- *  - The Anthropic API call times out after 30 seconds.
+ *  - The Gemini API call times out after 30 seconds.
  *  - Never throws — all errors are returned as { matches: [], error: string }.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI, type Part } from "@google/genai";
 import type { Shoe } from "@/lib/supabase";
 
 // ---------------------------------------------------------------------------
@@ -33,7 +33,7 @@ export type MatchResult =
 // Constants
 // ---------------------------------------------------------------------------
 
-const MODEL = "claude-sonnet-4-20250514";
+const MODEL = "gemini-2.5-flash";
 const MAX_CANDIDATES = 8;
 const TIMEOUT_MS = 30_000;
 
@@ -44,7 +44,7 @@ const TIMEOUT_MS = 30_000;
 /** Fetch a URL and return it as a base64-encoded string and mime type. */
 async function fetchAsBase64(
   url: string
-): Promise<{ base64: string; mediaType: string } | null> {
+): Promise<{ base64: string; mimeType: string } | null> {
   try {
     const controller = new AbortController();
     const tid = setTimeout(() => controller.abort(), 10_000);
@@ -52,8 +52,8 @@ async function fetchAsBase64(
     clearTimeout(tid);
     if (!res.ok) return null;
     const contentType = res.headers.get("content-type") ?? "image/jpeg";
-    // Normalise to a supported Anthropic image media type.
-    const mediaType = contentType.startsWith("image/png")
+    // Normalise to a supported image MIME type.
+    const mimeType = contentType.startsWith("image/png")
       ? "image/png"
       : contentType.startsWith("image/gif")
       ? "image/gif"
@@ -62,7 +62,7 @@ async function fetchAsBase64(
       : "image/jpeg";
     const buf = await res.arrayBuffer();
     const base64 = Buffer.from(buf).toString("base64");
-    return { base64, mediaType };
+    return { base64, mimeType };
   } catch {
     return null;
   }
@@ -73,7 +73,7 @@ async function fetchAsBase64(
 // ---------------------------------------------------------------------------
 
 /**
- * Match an uploaded photo against a list of candidate shoes using Claude vision.
+ * Match an uploaded photo against a list of candidate shoes using Gemini vision.
  *
  * @param photoBase64  Base64-encoded photo from the user.
  * @param photoMimeType  MIME type of the user's photo (e.g. "image/jpeg").
@@ -85,11 +85,11 @@ export async function matchPhotoToShoes(
   photoMimeType: string,
   candidates: Array<Pick<Shoe, "id" | "title" | "brand" | "image_url">>
 ): Promise<MatchResult> {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     return {
       matches: [],
       error:
-        "ANTHROPIC_API_KEY is not configured. Set it in your Vercel environment variables.",
+        "GEMINI_API_KEY is not configured. Set it in your Vercel environment variables.",
     };
   }
 
@@ -114,14 +114,13 @@ export async function matchPhotoToShoes(
   );
 
   // Build the interleaved content array: text label followed by image for each item.
-  // Structure: user photo label + image, then each catalog image with its label.
   const catalogLines: string[] = [];
   const successfulCandidates: Array<Pick<Shoe, "id" | "title" | "brand">> = [];
 
   // Catalog images (collected after filtering out failed downloads).
   type CatalogEntry = {
     label: string;
-    mediaType: string;
+    mimeType: string;
     base64: string;
   };
   const catalogEntries: CatalogEntry[] = [];
@@ -133,7 +132,7 @@ export async function matchPhotoToShoes(
     const label =
       `[${idx}] ${candidate.title}` + (candidate.brand ? ` (${candidate.brand})` : "");
     catalogLines.push(`${idx}. id=${candidate.id} — ${label}`);
-    catalogEntries.push({ label, mediaType: img.mediaType, base64: img.base64 });
+    catalogEntries.push({ label, mimeType: img.mimeType, base64: img.base64 });
   }
 
   if (successfulCandidates.length === 0) {
@@ -143,29 +142,24 @@ export async function matchPhotoToShoes(
     };
   }
 
-  // Interleave text labels before each image so Claude associates label ↔ image.
-  const orderedContent: Anthropic.ContentBlockParam[] = [
+  // Build the parts array: user photo, then each catalog image with its label.
+  const parts: Part[] = [
     {
-      type: "text",
       text: "PHOTO SENT BY USER (the shoe(s) they physically received):",
     },
     {
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: photoMimeType as Anthropic.Base64ImageSource["media_type"],
+      inlineData: {
+        mimeType: photoMimeType,
         data: photoBase64,
       },
     },
   ];
 
   for (const entry of catalogEntries) {
-    orderedContent.push({ type: "text", text: `CATALOG IMAGE ${entry.label}:` });
-    orderedContent.push({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: entry.mediaType as Anthropic.Base64ImageSource["media_type"],
+    parts.push({ text: `CATALOG IMAGE ${entry.label}:` });
+    parts.push({
+      inlineData: {
+        mimeType: entry.mimeType,
         data: entry.base64,
       },
     });
@@ -185,30 +179,32 @@ Instructions:
 - confidence=high means the shoe is clearly the same model/colorway. medium means similar but not certain. low means a loose resemblance only.
 - Respond with ONLY a raw JSON array, no markdown fences, no explanation. Example: [{"shoeId":"abc-123","title":"Nike Dunk Low","confidence":"high"}]`;
 
-  orderedContent.push({ type: "text", text: taskPrompt });
+  parts.push({ text: taskPrompt });
 
-  // Call the Anthropic API with a timeout.
+  // Call the Gemini API with a timeout via AbortSignal.
   try {
-    const client = new Anthropic({ timeout: TIMEOUT_MS });
-    const response = await client.messages.create({
+    const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    const response = await client.models.generateContent({
       model: MODEL,
-      max_tokens: 1024,
-      messages: [
-        {
-          role: "user",
-          content: orderedContent,
-        },
-      ],
+      contents: [{ role: "user", parts }],
+      config: {
+        maxOutputTokens: 1024,
+        responseMimeType: "application/json",
+        abortSignal: controller.signal,
+      },
     });
 
-    const rawText =
-      response.content.find((b): b is Anthropic.TextBlock => b.type === "text")
-        ?.text ?? "";
+    clearTimeout(tid);
+
+    const rawText = response.text ?? "";
 
     // Parse the JSON response defensively.
     let parsed: unknown;
     try {
-      // Strip any accidental markdown fences.
+      // Strip any accidental markdown fences (unlikely with responseMimeType=json, but defensive).
       const cleaned = rawText
         .trim()
         .replace(/^```[a-z]*\n?/i, "")
@@ -218,14 +214,14 @@ Instructions:
     } catch {
       return {
         matches: [],
-        error: `Claude returned an unparseable response: ${rawText.slice(0, 200)}`,
+        error: `Gemini returned an unparseable response: ${rawText.slice(0, 200)}`,
       };
     }
 
     if (!Array.isArray(parsed)) {
       return {
         matches: [],
-        error: "Claude returned an unexpected response format.",
+        error: "Gemini returned an unexpected response format.",
       };
     }
 

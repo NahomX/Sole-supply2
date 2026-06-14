@@ -1,8 +1,8 @@
 # Sole Supply — STATUS
 
-**Version:** 18
-**Last updated:** 2026-06-13 (pm-sole-supply — feat/shipper-confirm-receipt branch built, lint+build green, ready for commit/push/PR)
-**State:** 1 branch ready for PR (feat/shipper-confirm-receipt). Main branch `f090cd6` contains everything through PR #34. All 34 PRs are closed (32 merged, 2 closed-not-merged: #9, #21). All 12 migrations applied.
+**Version:** 20
+**Last updated:** 2026-06-13 (pm-sole-supply — PR #35 updated: photo-match swapped from Claude to Gemini, CI green, mergeable)
+**State:** 1 PR open (#35 feat/shipper-confirm-receipt — Vercel CI SUCCESS, MERGEABLE, user-confirmed design). Main branch `f090cd6` contains everything through PR #34. All 34 prior PRs are closed (32 merged, 2 closed-not-merged: #9, #21). All 12 migrations applied.
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
 
@@ -23,24 +23,26 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 
 ---
 
-## OPEN PRs / Branches ready for PR
+## OPEN PRs
 
-### `feat/shipper-confirm-receipt` (ready for commit+push+PR, build green)
+### PR #35 `feat/shipper-confirm-receipt` — OPEN, CI green, MERGEABLE, confirmed-as-built
+
+**Vercel CI:** SUCCESS. **GitHub mergeable:** MERGEABLE. **Design:** User-confirmed (all 4 blocking questions answered, all match defaults as built). **Ready to merge** pending user approval and `GEMINI_API_KEY` in Vercel for the photo-match flow.
 
 **Two features in one branch** (no schema changes, no new migrations):
 
-**Option 1 — Shipper quick-action UI** (`app/admin/AdminDashboard.tsx`):
+**Feature A — Shipper quick-action UI** (`app/admin/AdminDashboard.tsx`):
 - Per-size quick-action buttons: "Arrived" / "Delivered" / "Purchased" — one tap instead of a dropdown
 - Shipper-simplified view: hides dropdown entirely, shows status label + quick-action button only
 - Batch "Mark all" button at shoe level (e.g. "Arrived all (3)") with confirm dialog
 - Admin view: quick-action button primary + dropdown de-emphasised below it
 
-**Option 2 — AI photo-matching via Telegram** (`lib/shoe-matcher.ts` NEW + `lib/bots/handlers.ts`):
+**Feature B — AI photo-matching via Telegram** (`lib/shoe-matcher.ts` NEW + `lib/bots/handlers.ts`):
 - `message:photo` handler on all three work bots (purchaser, arrived, delivery)
-- Claude `claude-sonnet-4-20250514` vision compares the photo against catalog `image_url`s (up to 8 candidates, 30s timeout)
+- Gemini `gemini-2.5-flash` vision (`@google/genai` SDK) compares the photo against catalog `image_url`s (up to 8 candidates, 30s timeout)
 - Inline keyboard confirmation: top 3 matches with confidence labels + "None of these"
 - On confirm: `advanceAllSizes()` advances all eligible sizes to the bot's `toStatus`
-- Requires `ANTHROPIC_API_KEY` in Vercel (same var as NL editing — now needed for core bot workflow too)
+- Requires `GEMINI_API_KEY` in Vercel (reuses the same key if set for other Gemini features)
 - Callback scheme: `phm:{shoeId}` (40 bytes max), `phm_no`
 
 ---
@@ -141,6 +143,11 @@ All 34 prior PRs are closed (32 merged, 2 closed-not-merged: #9 superseded by #2
 | `STRIPE_SECRET_KEY` (rk_test_*) | UNCONFIRMED |
 | `STRIPE_WEBHOOK_SECRET` | UNCONFIRMED |
 
+### AI photo-matching (work bots):
+| Variable | Status |
+|----------|--------|
+| `GEMINI_API_KEY` | UNCONFIRMED |
+
 ### Ops-bot site editing (Tier 2 NL, optional):
 | Variable | Status |
 |----------|--------|
@@ -189,9 +196,9 @@ The code is on main in TEST mode (`LIVEMODE_ALLOWED=false`). The DB tables now e
 2. Deploy the `worker/` directory to Fly.io with `rk_test_*` + Anthropic key + `role:worker` JWT
 3. Toggle `agent_config.agent_enabled` in Supabase only after a dry-run
 
-### P2.5 -- ANTHROPIC_API_KEY (elevated from P4 -- now needed for photo-match)
+### P2.5 -- GEMINI_API_KEY (needed for photo-match on work bots)
 
-`ANTHROPIC_API_KEY` is now required for the core photo-match flow on work bots (arrived/delivery/purchaser). Previously only needed for optional NL editing (Tier 2). Set it in Vercel along with `SITE_EDIT_NL_ENABLED=true` to also enable NL editing.
+`GEMINI_API_KEY` is required for the AI photo-match flow on work bots (arrived/delivery/purchaser). Get a key from https://aistudio.google.com/app/apikey and set it in Vercel. The feature degrades gracefully if unset (returns an error message, no crash). `ANTHROPIC_API_KEY` is still needed separately for ops-bot NL editing (Tier 2) if desired, but is no longer required for the core bot workflow.
 
 ---
 
@@ -210,7 +217,7 @@ With migrations 0004--0012 applied (per Nahom), the schema-level blockers are cl
 | **Agent worker** (Phase 3 autonomous) | YES | **UNCONFIRMED** | **GATED on env vars + Fly.io deploy** | RLS policies exist (0009). Worker directory needs Fly.io deployment + env vars. `agent_config.agent_enabled` defaults to false. |
 | **Ops-bot site editing** (Tier 1 structured) | YES | YES (no extra vars for Tier 1) | YES | `site_copy` table exists (0011). Structured commands work immediately. |
 | **Ops-bot NL editing** (Tier 2) | YES | **UNCONFIRMED** | **GATED on env vars** | Needs `ANTHROPIC_API_KEY` + `SITE_EDIT_NL_ENABLED=true`. |
-| **Shipper photo-match** (work bots) | YES | **GATED on `ANTHROPIC_API_KEY`** | **GATED on env vars** | Needs `ANTHROPIC_API_KEY` + bot tokens. Code on `feat/shipper-confirm-receipt` branch (not yet on main). |
+| **Shipper photo-match** (work bots) | YES | **GATED on `GEMINI_API_KEY`** | **GATED on env vars + merge** | Needs `GEMINI_API_KEY` + bot tokens. Uses Gemini `gemini-2.5-flash` via `@google/genai`. Code on PR #35 (`feat/shipper-confirm-receipt`) — CI green, mergeable, design confirmed (decision #16). |
 | **Chapa payments** (test-mode POC) | YES | **UNCONFIRMED** | **GATED on env vars** | Payment tables exist (0006). `CHAPA_SECRET_KEY` needed. |
 | **Shoe-videos storage bucket** | YES (0012) | N/A | **NEEDS MANUAL CHECK** | The bucket creation SQL ran. If the storage policy failed due to Supabase ownership restrictions (see 0012 header caveat), the bucket exists but public-read policy may be missing. Check in Supabase Storage dashboard. |
 
@@ -235,6 +242,11 @@ With migrations 0004--0012 applied (per Nahom), the schema-level blockers are cl
 13. Migration CI = approved. Auto-apply additive, human-gate destructive.
 14. Storefront redesign = APPROVED and MERGED (PR #34, 2026-06-11). Ink/cream/orange tokens, bilingual, category card titles, `/shoe/[id]` details page, USD fully redacted from customers, admin-set birr prices, hands-on video pipeline.
 15. Shipper receipt confirmation = two options: (a) quick-action buttons on web admin dashboard, (b) AI photo-matching via Telegram work bots. Both built on `feat/shipper-confirm-receipt`. No enum changes, no new migrations.
+16. Distributor delivery-confirmation design (PR #35) — ALL 4 blocking questions answered by Nahom (2026-06-13), all match defaults as built, NO code changes required:
+    - (a) Distributor role = existing **shipper** role. No new DB role.
+    - (b) One photo = one shoe (top-3 candidates, pick one). No multi-shoe-per-photo.
+    - (c) On confirmation, advance **all eligible sizes** of the matched shoe (no per-size selector).
+    - (d) Confirmation UX = **inline buttons** (tap to confirm).
 
 ---
 
@@ -262,14 +274,16 @@ Linux node is broken (glibc 2.27). Use Windows `node.exe` / npm-cli.js / `git.ex
 
 - Current branch: `feat/shipper-confirm-receipt` (based on main `f090cd6`)
 - `origin/main` tip: `f090cd6` (PR #34 merge commit, 2026-06-11)
-- Uncommitted changes: `AdminDashboard.tsx`, `handlers.ts`, `shoe-matcher.ts` (new), `STATUS.md`
+- PR #35: OPEN, CI green, MERGEABLE, design confirmed (decision #16)
 - Build + lint: GREEN (8/8 pages, no ESLint warnings)
-- Ready for: commit, push, PR creation
+- Ready for: MERGE (user approval)
 
 ---
 
 ## Changelog
 
+- v20 -- 2026-06-13 -- pm-sole-supply -- PR #35 photo-match provider swapped from Claude (Anthropic SDK) to Gemini (`gemini-2.5-flash` via `@google/genai`). `GEMINI_API_KEY` replaces `ANTHROPIC_API_KEY` for shoe-matcher; `ANTHROPIC_API_KEY` still needed only for NL editing. `.env.example` updated. Build+lint green. P2.5 rewritten. Compare-and-swap v19->v20 (N_start=N_disk=19).
+- v19 -- 2026-06-13 -- pm-sole-supply -- PR #35 design confirmed: all 4 blocking questions answered by Nahom, all match defaults as built (no code changes). Locked decision #16 (shipper=existing role, 1-photo-1-shoe, advance-all-sizes, inline-buttons). PR #35 state: OPEN, Vercel CI SUCCESS, MERGEABLE, awaiting user merge approval. Compare-and-swap v18->v19 (N_start=N_disk=18).
 - v18 -- 2026-06-13 -- pm-sole-supply -- feat/shipper-confirm-receipt branch built (lint+build green). Two features: (1) Shipper quick-action UI — per-size one-tap buttons (Arrived/Delivered/Purchased) replacing dropdown for shippers, batch "Mark all" button with confirm, admin dropdown de-emphasised; (2) AI photo-matching via Telegram — `lib/shoe-matcher.ts` (Claude claude-sonnet-4-20250514 vision, 8-candidate cap, 30s timeout) + `message:photo` handler on all work bots (purchaser/arrived/delivery) with `phm:{shoeId}` / `phm_no` inline confirmation. No enum changes, no new migrations. ANTHROPIC_API_KEY elevated from P4 to P2.5 (now needed for core bot workflow). Decision #15 recorded. Compare-and-swap v17->v18 (N_start=N_disk=17).
 - v17 -- 2026-06-11 -- pm-sole-supply -- MIGRATION MILESTONE: Nahom applied migrations 0004-0012 in Supabase SQL Editor. Updated all 9 migrations from UNCONFIRMED to "applied per Nahom, unverified" (no DATABASE_URL available for migrate:check verification). Added Feature Readiness table assessing all feature areas post-migration. Schema fully unblocked; next bottleneck is Vercel env vars (P2 Telegram bots highest priority). Reprioritized user actions: former P0 (migration) resolved, new P0 is migration CI baseline, P1 is storefront content (store address/phone/Telegram handle). Compare-and-swap v16->v17 (N_start=N_disk=16).
 - v16 -- 2026-06-11 -- pm-sole-supply -- PR #34 (feat/storefront-redesign) MERGED. Post-PR review passed: redaction intact (url + price_usd stripped for non-admins on / and /shoe/[id]), enum sync untouched (no enum changes), build green (8/8 pages), Vercel CI SUCCESS. Merged via gh.exe (commit f090cd6). Updated main tip, moved PR #34 from OPEN to merged history, migration 0012 now on main (still unconfirmed). Flagged migrations 0007-0010 as HIGH per Jackson's daily check-in. Reprioritized user actions. Compare-and-swap v15->v16 (N_start=N_disk=15).
