@@ -102,6 +102,11 @@
  * is "delivered" (9 chars). Longest callback: ops_log_st:36:4:9 = 56 bytes.
  * Phase B longest: edit_sales:36:9 = 57 bytes; cp_lang:18:2 = 29 bytes.
  * Redesign longest: vidclr_pick:36 = 48 bytes.
+ *
+ * Photo-match (work bots):
+ *   phm:{shoeId}    — confirm photo match → advance all eligible sizes
+ *   phm_no          — reject all photo-match candidates
+ * Photo-match longest: phm:36 = 40 bytes.
  */
 
 import { Bot, Context, InlineKeyboard } from "grammy";
@@ -132,6 +137,7 @@ import { getSiteCopy, getCopy, setCopy } from "@/lib/site-copy";
 import type { SiteCopyKey, SiteCopyLang } from "@/lib/site-copy";
 import { parseOwnerIntent } from "@/lib/site-edit-nl";
 import type { OwnerIntent } from "@/lib/site-edit-nl";
+import { matchPhotoToShoes } from "@/lib/shoe-matcher";
 import { SIZE_GRID } from "@/lib/sizes";
 import type { Shoe, LogisticsStatus, ShoeStatus, ShoeSize } from "@/lib/supabase";
 import { supabaseService } from "@/lib/supabase";
@@ -866,6 +872,161 @@ export function registerWorkBot(bot: Bot, entry: BotEntry) {
       `Done! ${result.count} size${result.count === 1 ? "" : "s"} → ${config.toStatus}`
     );
     await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+  });
+
+  // -------------------------------------------------------------------------
+  // Photo-match flow: send a photo → AI identifies which shoe → confirm → advance.
+  //
+  // The user sends a photo of the shoe they just received (or are about to
+  // deliver). Claude vision compares it against all shoes with sizes at
+  // config.fromStatus and returns ranked matches. The operator confirms by
+  // tapping an inline button, which calls advanceAllSizes for that shoe.
+  //
+  // Callback scheme:
+  //   phm:{shoeId}   — confirmed match → advance all eligible sizes
+  //   phm_no         — no match, fall back to manual /list
+  // -------------------------------------------------------------------------
+  bot.on("message:photo", async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, workRole))) return;
+
+    // Get candidate shoes with sizes at fromStatus.
+    const { shoes: candidates, error: fetchError } = await getShoesByLogistics(
+      config.fromStatus
+    );
+    if (fetchError) {
+      await ctx.reply("Error fetching candidate shoes. Please try again.");
+      return;
+    }
+    if (candidates.length === 0) {
+      await ctx.reply(
+        `No shoes with sizes at "${config.fromStatus}". Nothing to match.`
+      );
+      return;
+    }
+
+    // Download the highest-resolution photo from Telegram.
+    const photoSizes = ctx.message.photo;
+    const largest = photoSizes[photoSizes.length - 1];
+    if (!largest) {
+      await ctx.reply("Could not read the photo. Please try again.");
+      return;
+    }
+
+    // Send a status message while the AI processes.
+    const statusMsg = await ctx.reply("Analyzing photo...");
+    const done = (text: string) =>
+      ctx.api
+        .editMessageText(statusMsg.chat.id, statusMsg.message_id, text)
+        .catch(() => ctx.reply(text));
+
+    try {
+      // Download the photo via Telegram file API.
+      const file = await ctx.api.getFile(largest.file_id);
+      if (!file.file_path) {
+        await done(
+          "Telegram did not return a download path for that photo. Please try again."
+        );
+        return;
+      }
+      const photoRes = await fetch(
+        `https://api.telegram.org/file/bot${ctx.api.token}/${file.file_path}`
+      );
+      if (!photoRes.ok) {
+        await done(
+          `Error downloading the photo from Telegram (HTTP ${photoRes.status}).`
+        );
+        return;
+      }
+      const photoBuffer = Buffer.from(await photoRes.arrayBuffer());
+      const photoBase64 = photoBuffer.toString("base64");
+
+      // Run AI matching.
+      const matchResult = await matchPhotoToShoes(
+        photoBase64,
+        "image/jpeg",
+        candidates.map((s) => ({
+          id: s.id,
+          title: s.title,
+          brand: s.brand,
+          image_url: s.image_url,
+        }))
+      );
+
+      if (matchResult.error) {
+        await done(`Could not match the photo: ${matchResult.error}`);
+        return;
+      }
+
+      const topMatches = matchResult.matches.slice(0, 3);
+      if (topMatches.length === 0) {
+        await done(
+          "No matching shoes found in the catalog. Use /list to manually select a shoe."
+        );
+        return;
+      }
+
+      // Build the confirmation keyboard.
+      const kb = new InlineKeyboard();
+      for (const match of topMatches) {
+        const confLabel =
+          match.confidence === "high"
+            ? "Strong match"
+            : match.confidence === "medium"
+            ? "Possible match"
+            : "Weak match";
+        const btnLabel = `${confLabel}: ${match.title.slice(0, 35)} — advance all sizes?`;
+        kb.text(btnLabel, `phm:${match.shoeId}`).row();
+      }
+      kb.text("None of these", "phm_no");
+
+      await ctx.api.editMessageText(
+        statusMsg.chat.id,
+        statusMsg.message_id,
+        `AI identified ${topMatches.length} possible match${topMatches.length === 1 ? "" : "es"}. Tap to confirm and advance all eligible sizes to "${config.toStatus}":`,
+        { reply_markup: kb }
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "unknown error";
+      await done(`Error during photo analysis: ${msg}`);
+    }
+  });
+
+  // Confirmed match — advance all eligible sizes for the matched shoe.
+  bot.callbackQuery(/^phm:(.+)$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, workRole))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const shoeId = ctx.match[1];
+    const result = await advanceAllSizes(shoeId, config.toStatus, botMeta(ctx, entry.name));
+    await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+    if (result.error) {
+      await ctx.reply(`Error advancing sizes: ${result.error}`);
+      return;
+    }
+    if (result.count === 0) {
+      await ctx.reply(
+        `No sizes were at "${config.fromStatus}" for that shoe. Check /admin for the current status.`
+      );
+      return;
+    }
+    await ctx.reply(
+      `Done! ${result.count} size${result.count === 1 ? "" : "s"} → ${config.toStatus}`
+    );
+  });
+
+  // Rejected — tell the user to fall back to manual selection.
+  bot.callbackQuery(/^phm_no$/, async (ctx) => {
+    if (!(await guardAllowlist(ctx, entry.name, workRole))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery("Match rejected.");
+    await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
+    await ctx.reply(
+      "No match confirmed. Use /list to manually select a shoe."
+    );
   });
 }
 
