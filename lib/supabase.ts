@@ -1,6 +1,19 @@
 import { createBrowserClient } from "@supabase/ssr";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
+/** Guard: the Supabase URL must be a valid https URL. Global env vars on
+ *  Windows sometimes contain a malformed value that crashes createClient. */
+function validSupabaseUrl(): boolean {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export type Role = "admin" | "submitter" | "customer" | "shipper";
 export type ShoeStatus = "upcoming" | "available" | "sold";
 export type LogisticsStatus =
@@ -100,6 +113,11 @@ export type Payment = {
 let browser: SupabaseClient | null = null;
 export function supabaseBrowser(): SupabaseClient {
   if (!browser) {
+    if (!validSupabaseUrl()) {
+      throw new Error(
+        "NEXT_PUBLIC_SUPABASE_URL is missing or malformed. Check your .env.local."
+      );
+    }
     browser = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -115,10 +133,19 @@ export function supabaseBrowser(): SupabaseClient {
 
 // Service-role client for privileged writes that must bypass RLS
 // (e.g., scraper insert, inviting users). Never expose to the browser.
+// Lenient guard: logs a warning but does NOT throw — the Supabase client
+// tolerates a bad URL at creation time and fails gracefully on queries,
+// which the callers already handle (e.g. getShoes() returns []). Throwing
+// here would break `next build` when a global malformed env var is present.
 export function supabaseService(): SupabaseClient {
+  if (!validSupabaseUrl()) {
+    console.warn(
+      "[supabase] NEXT_PUBLIC_SUPABASE_URL is missing or malformed — DB calls will fail."
+    );
+  }
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+    process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
     { auth: { persistSession: false } }
   );
 }

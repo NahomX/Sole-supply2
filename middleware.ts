@@ -8,6 +8,10 @@ type CookieToSet = { name: string; value: string; options: CookieOptions };
 // requireRole(), because middleware can't easily hit the profiles table
 // without another round-trip to Supabase for every navigation.
 export async function middleware(req: NextRequest) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!url) return NextResponse.next();
+  try { new URL(url); } catch { return NextResponse.next(); }
+
   const res = NextResponse.next();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
