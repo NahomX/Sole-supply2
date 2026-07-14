@@ -65,7 +65,8 @@ export async function POST(
     );
   }
 
-  const { size, error } = await addSize(params.id, usSize);
+  const qty = typeof body.quantity === "number" && body.quantity > 0 ? body.quantity : 1;
+  const { size, error } = await addSize(params.id, usSize, qty);
   if (error) return NextResponse.json({ error }, { status: 500 });
   return NextResponse.json({ size }, { status: 201 });
 }
@@ -132,5 +133,16 @@ export async function PATCH(
     meta
   );
   if (error) return NextResponse.json({ error }, { status: 500 });
+
+  // If quantity was included in the PATCH body, update it separately (admin only).
+  if (typeof body.quantity === "number" && body.quantity > 0 && size) {
+    const db = (await import("@/lib/supabase")).supabaseService();
+    await db
+      .from("shoe_sizes")
+      .update({ quantity: body.quantity })
+      .eq("shoe_id", params.id)
+      .eq("us_size", usSize);
+  }
+
   return NextResponse.json({ size });
 }
