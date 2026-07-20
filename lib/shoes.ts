@@ -135,6 +135,11 @@ export type CreateShoeInput = {
    * existing bot callers that pass `logistics_status`. Treated identically.
    */
   logistics_status?: LogisticsStatus | null;
+  /**
+   * Number of pairs per size (migration 0013). Applied to every shoe_sizes
+   * row created from the parsed `sizes` field. Default 1.
+   */
+  quantity?: number | null;
   /** Optional context for the ops feed. Does not affect the DB write. */
   meta?: FeedMeta;
 };
@@ -186,14 +191,17 @@ export async function createShoeFromUrl(
   if (error) return { shoe: null, error: error.message };
   const shoe = data as Shoe;
 
-  // Seed shoe_sizes rows if an initial logistics status was supplied.
-  if (initLs !== null && sizesText) {
+  // Seed shoe_sizes rows when sizes are provided (with or without initial
+  // logistics status). quantity defaults to 1 when not specified.
+  const qty = input.quantity != null && input.quantity > 0 ? input.quantity : 1;
+  if (sizesText) {
     const parsed = parseAvailableSizes(sizesText);
     if (parsed.size > 0) {
       const sizeRows = Array.from(parsed).map((us) => ({
         shoe_id: shoe.id,
         us_size: us,
         logistics_status: initLs,
+        quantity: qty,
       }));
       await db.from("shoe_sizes").insert(sizeRows);
     }
@@ -617,15 +625,18 @@ export async function setSizeStatus(
  * Add a size to a shoe (inserts with null logistics_status).
  * No-op if the size already exists (returns the existing row).
  * Admins only — shippers may only change status of existing sizes.
+ * Optional `quantity` (default 1) sets how many pairs at this size.
  */
 export async function addSize(
   shoeId: string,
-  usSize: string
+  usSize: string,
+  quantity?: number
 ): Promise<{ size: ShoeSize | null; error: string | null }> {
+  const qty = quantity != null && quantity > 0 ? quantity : 1;
   const db = supabaseService();
   const { data, error } = await db
     .from("shoe_sizes")
-    .insert({ shoe_id: shoeId, us_size: usSize, logistics_status: null })
+    .insert({ shoe_id: shoeId, us_size: usSize, logistics_status: null, quantity: qty })
     .select()
     .single();
   if (error) {

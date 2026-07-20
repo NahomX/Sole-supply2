@@ -155,6 +155,22 @@ export function AdminDashboard({
     });
   }
 
+  // Update quantity for a size: PATCH /api/shoes/:id/sizes (admin only)
+  // Sends the current logistics_status to preserve it (the PATCH endpoint
+  // requires logistics_status + us_size; quantity is applied separately).
+  async function updateSizeQuantity(
+    shoeId: string,
+    usSize: string,
+    currentStatus: LogisticsStatus | null,
+    quantity: number
+  ) {
+    await call(`/api/shoes/${shoeId}/sizes`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ us_size: usSize, logistics_status: currentStatus, quantity }),
+    });
+  }
+
   // Payment test form state (admin only, paymentsEnabled only)
   const [payShoeId, setPayShoeId] = useState<string>("");
   const [paySize, setPaySize] = useState<string>("");
@@ -356,6 +372,11 @@ export function AdminDashboard({
               onSetSizeStatus={(usSize, ls) => setSizeStatus(s.id, usSize, ls)}
               onAddSize={isAdmin ? (usSize) => addSizeToShoe(s.id, usSize) : undefined}
               onRemoveSize={isAdmin ? (usSize) => removeSizeFromShoe(s.id, usSize) : undefined}
+              onUpdateSizeQuantity={
+                isAdmin
+                  ? (usSize, currentStatus, qty) => updateSizeQuantity(s.id, usSize, currentStatus, qty)
+                  : undefined
+              }
               onDelete={isAdmin ? () => deleteShoe(s.id) : undefined}
               staleBadge={
                 staleSet.has(s.id)
@@ -681,6 +702,7 @@ function ShoeRow({
   onSetSizeStatus,
   onAddSize,
   onRemoveSize,
+  onUpdateSizeQuantity,
   onDelete,
   staleBadge,
 }: {
@@ -693,6 +715,7 @@ function ShoeRow({
   onSetSizeStatus: (usSize: string, ls: LogisticsStatus | null) => void;
   onAddSize?: (usSize: string) => void;
   onRemoveSize?: (usSize: string) => void;
+  onUpdateSizeQuantity?: (usSize: string, currentStatus: LogisticsStatus | null, qty: number) => void;
   onDelete?: () => void;
   /** If set, renders an inline amber stale badge with the age in days */
   staleBadge?: { days: number };
@@ -810,6 +833,11 @@ function ShoeRow({
               loading={loading}
               onSetStatus={(ls) => onSetSizeStatus(sz.us_size, ls)}
               onRemove={onRemoveSize ? () => onRemoveSize(sz.us_size) : undefined}
+              onUpdateQuantity={
+                onUpdateSizeQuantity
+                  ? (qty) => onUpdateSizeQuantity(sz.us_size, sz.logistics_status, qty)
+                  : undefined
+              }
             />
           ))}
         </div>
@@ -1054,10 +1082,20 @@ function BatchQuickAction({
     }
   }
 
+  // Total pairs across all sizes (show when any size has qty > 1)
+  const totalPairs = sizes.reduce((sum, sz) => sum + (sz.quantity ?? 1), 0);
+  const showTotalPairs = totalPairs !== sizes.length; // only when qty > 1 somewhere
+
   return (
     <div className="flex items-center justify-between mb-2">
-      <div className="text-[11px] uppercase tracking-wider text-neutral-500">
-        Sizes &amp; logistics
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] uppercase tracking-wider text-neutral-500">
+          Sizes &amp; logistics
+        </span>
+        <span className="text-[10px] text-neutral-400">
+          {sizes.length} size{sizes.length !== 1 ? "s" : ""}
+          {showTotalPairs ? ` / ${totalPairs} pairs` : ""}
+        </span>
       </div>
       {showBatch && batchNext && (
         <button
@@ -1075,7 +1113,77 @@ function BatchQuickAction({
 }
 
 // ---------------------------------------------------------------------------
+// Status display helpers — single source of truth for status → color mapping
+// ---------------------------------------------------------------------------
+
+/** Human-readable label for the current logistics status. */
+function statusLabel(ls: LogisticsStatus | null): string {
+  if (!ls) return "Not started";
+  switch (ls) {
+    case "in_cart":
+      return "In cart";
+    case "purchased":
+      return "Purchased";
+    case "arrived":
+      return "Arrived";
+    case "delivered":
+      return "Delivered";
+    default:
+      return ls;
+  }
+}
+
+/** Consistent color scheme for a logistics status — used for both the badge
+ *  and the card border/background tint. Single mapping, no disagreement. */
+function statusColors(ls: LogisticsStatus | null): {
+  badge: string;
+  cardBorder: string;
+  cardBg: string;
+} {
+  switch (ls) {
+    case "arrived":
+      return {
+        badge: "bg-emerald-600 text-white",
+        cardBorder: "border-emerald-300",
+        cardBg: "bg-emerald-50",
+      };
+    case "purchased":
+      return {
+        badge: "bg-amber-500 text-white",
+        cardBorder: "border-amber-300",
+        cardBg: "bg-amber-50",
+      };
+    case "in_cart":
+      return {
+        badge: "bg-sky-500 text-white",
+        cardBorder: "border-sky-300",
+        cardBg: "bg-sky-50",
+      };
+    case "delivered":
+      return {
+        badge: "bg-neutral-400 text-white",
+        cardBorder: "border-neutral-300",
+        cardBg: "bg-neutral-50",
+      };
+    default:
+      // null — not started
+      return {
+        badge: "bg-neutral-200 text-neutral-600",
+        cardBorder: "border-neutral-200",
+        cardBg: "bg-white",
+      };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // SizeStatusChip — one chip per shoe_sizes row in the admin editor
+//
+// Redesigned: the CURRENT status is the single dominant visual signal.
+// - Header row: size label + current-status badge (color-matched)
+// - Quantity: shown as "x2" when > 1
+// - Quick-action: clearly an action button ("-> Arrived"), not a badge
+// - Admin dropdown: labeled "Set:", clearly a control for manual override
+// - Card border/bg tint matches the current status color
 // ---------------------------------------------------------------------------
 
 function SizeStatusChip({
@@ -1084,82 +1192,113 @@ function SizeStatusChip({
   loading,
   onSetStatus,
   onRemove,
+  onUpdateQuantity,
 }: {
   sz: ShoeSize;
   isAdmin: boolean;
   loading: boolean;
   onSetStatus: (ls: LogisticsStatus | null) => void;
   onRemove?: () => void;
+  onUpdateQuantity?: (qty: number) => void;
 }) {
   const next = nextLogisticsStatus(sz.logistics_status);
-
-  // Colour encodes customer-visible state:
-  // arrived → green; purchased → gold; in_cart/null → neutral; delivered → muted
-  const chipColor =
-    sz.logistics_status === "arrived"
-      ? "bg-[#1F7A52] text-white border-[#1F7A52]"
-      : sz.logistics_status === "purchased"
-      ? "bg-[#E8B53A] text-neutral-900 border-[#E8B53A]"
-      : sz.logistics_status === "delivered"
-      ? "bg-neutral-100 text-neutral-400 border-neutral-200"
-      : "bg-white text-neutral-700 border-neutral-300"; // null or in_cart
+  const colors = statusColors(sz.logistics_status);
+  const qty = sz.quantity ?? 1;
 
   return (
     <div
-      className={`inline-flex flex-col items-center rounded border px-2 py-1 gap-1 ${chipColor}`}
+      className={`inline-flex flex-col items-start rounded border px-2.5 py-1.5 gap-1 min-w-[80px] ${colors.cardBorder} ${colors.cardBg}`}
     >
-      <span className="text-xs font-medium">US {sz.us_size}</span>
+      {/* Row 1: Size label + quantity */}
+      <div className="flex items-center gap-1.5 w-full">
+        <span className="text-xs font-semibold text-neutral-800">US {sz.us_size}</span>
+        {qty > 1 && (
+          <span className="text-[10px] font-medium text-neutral-500">x{qty}</span>
+        )}
+      </div>
 
-      {/* Quick-action button — primary interaction, most prominent */}
+      {/* Row 2: Current status badge — THE single source of truth visually */}
+      <span
+        className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold leading-tight ${colors.badge}`}
+      >
+        {statusLabel(sz.logistics_status)}
+      </span>
+
+      {/* Row 3: Quick-action button — clearly an ACTION (arrow prefix, outline style) */}
       {next && (
         <button
           type="button"
           onClick={() => onSetStatus(next)}
           disabled={loading}
-          className={`rounded px-2 py-0.5 text-[10px] font-semibold leading-none disabled:opacity-50 transition-colors ${quickActionStyle(next)}`}
+          className="w-full rounded border border-neutral-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-50 transition-colors text-center"
           aria-label={`Mark US ${sz.us_size} as ${next}`}
         >
-          {quickActionLabel(next)}
+          &rarr; {quickActionLabel(next)}
         </button>
       )}
 
-      {/* Current status label (shipper view) OR dropdown (admin view) */}
-      {isAdmin ? (
-        /* Admin: keep the full dropdown but de-emphasise it below the quick-action button */
-        <select
-          value={sz.logistics_status ?? ""}
-          onChange={(e) =>
-            onSetStatus((e.target.value || null) as LogisticsStatus | null)
-          }
-          disabled={loading}
-          className="text-[10px] border-0 bg-transparent p-0 cursor-pointer focus:outline-none opacity-70"
-          aria-label={`Logistics status for US ${sz.us_size}`}
-        >
-          <option value="">— none</option>
-          {LOGISTICS.map((ls) => (
-            <option key={ls} value={ls}>
-              {ls}
-            </option>
-          ))}
-        </select>
-      ) : (
-        /* Shipper: show current status as a plain label — no dropdown needed */
-        <span className="text-[10px] opacity-75">
-          {sz.logistics_status ?? "none"}
+      {/* Row 4: Admin override dropdown — labeled, clearly a control */}
+      {isAdmin && (
+        <div className="flex items-center gap-1 w-full">
+          <span className="text-[9px] text-neutral-400 shrink-0">Set:</span>
+          <select
+            value={sz.logistics_status ?? ""}
+            onChange={(e) =>
+              onSetStatus((e.target.value || null) as LogisticsStatus | null)
+            }
+            disabled={loading}
+            className="text-[10px] border border-neutral-200 rounded bg-white px-1 py-0 cursor-pointer flex-1 min-w-0"
+            aria-label={`Set logistics status for US ${sz.us_size}`}
+          >
+            <option value="">none</option>
+            {LOGISTICS.map((ls) => (
+              <option key={ls} value={ls}>
+                {ls}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Row 5: Admin quantity editor + remove */}
+      {isAdmin && (
+        <div className="flex items-center gap-2 w-full">
+          {onUpdateQuantity && (
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] text-neutral-400">Qty:</span>
+              <input
+                type="number"
+                min={1}
+                value={qty}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value);
+                  if (v > 0) onUpdateQuantity(v);
+                }}
+                disabled={loading}
+                className="w-10 text-[10px] border border-neutral-200 rounded px-1 py-0 bg-white"
+                aria-label={`Quantity for US ${sz.us_size}`}
+              />
+            </div>
+          )}
+          {onRemove && (
+            <button
+              type="button"
+              onClick={onRemove}
+              disabled={loading}
+              className="text-[9px] text-red-400 hover:text-red-600 ml-auto"
+              aria-label={`Remove US ${sz.us_size}`}
+            >
+              remove
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Shipper view: just the current status as text (no dropdown) */}
+      {!isAdmin && !next && (
+        <span className="text-[10px] text-neutral-400 italic">
+          {sz.logistics_status === "delivered" ? "Complete" : ""}
         </span>
-      )}
-
-      {/* Remove button — admin only */}
-      {isAdmin && onRemove && (
-        <button
-          type="button"
-          onClick={onRemove}
-          disabled={loading}
-          className="text-[9px] opacity-60 hover:opacity-100"
-          aria-label={`Remove US ${sz.us_size}`}
-        >
-          remove
-        </button>
       )}
     </div>
   );

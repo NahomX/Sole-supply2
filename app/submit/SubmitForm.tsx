@@ -12,6 +12,7 @@ type Preview = {
 export function SubmitForm({ email }: { email: string | null }) {
   const [url, setUrl] = useState("");
   const [sizes, setSizes] = useState("");
+  const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -44,6 +45,7 @@ export function SubmitForm({ email }: { email: string | null }) {
         body: JSON.stringify({
           url,
           sizes: sizes || null,
+          quantity: quantity > 1 ? quantity : undefined,
           notes: notes || null,
           title: preview?.title ?? undefined,
           image_url: preview?.image ?? undefined,
@@ -57,6 +59,7 @@ export function SubmitForm({ email }: { email: string | null }) {
         setMsg("Added. It will appear as upcoming on the homepage.");
         setUrl("");
         setSizes("");
+        setQuantity(1);
         setNotes("");
         setPreview(null);
       }
@@ -126,17 +129,31 @@ export function SubmitForm({ email }: { email: string | null }) {
           </div>
         )}
 
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Sizes (comma separated)
-          </label>
-          <input
-            type="text"
-            value={sizes}
-            onChange={(e) => setSizes(e.target.value)}
-            placeholder="9, 10, 10.5"
-            className="w-full border border-neutral-300 rounded px-3 py-2 text-sm"
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Sizes (comma separated)
+            </label>
+            <input
+              type="text"
+              value={sizes}
+              onChange={(e) => setSizes(e.target.value)}
+              placeholder="9, 10, 10.5"
+              className="w-full border border-neutral-300 rounded px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Qty per size
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={quantity}
+              onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+              className="w-20 border border-neutral-300 rounded px-3 py-2 text-sm"
+            />
+          </div>
         </div>
 
         <div>

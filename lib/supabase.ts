@@ -41,6 +41,8 @@ export type ShoeSize = {
   us_size: string;
   /** null = listed / not started; non-null = in pipeline. */
   logistics_status: LogisticsStatus | null;
+  /** Number of pairs at this size (migration 0013). Default 1. */
+  quantity: number;
   created_at: string;
 };
 

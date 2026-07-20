@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
     price_usd: body.price_usd ?? null,
     sizes: body.sizes ?? null,
     notes: body.notes ?? null,
+    quantity: typeof body.quantity === "number" ? body.quantity : null,
     meta: {
       actorLabel: session?.email ?? undefined,
       source: "web",
