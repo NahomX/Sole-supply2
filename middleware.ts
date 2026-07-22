@@ -24,6 +24,12 @@ type CookieToSet = { name: string; value: string; options: CookieOptions };
 //   - Auth routes (/auth/*) are excluded from timeout checks to prevent
 //     redirect loops.
 export async function middleware(req: NextRequest) {
+  // Guard: bail early if Supabase URL is missing or malformed (prevents 500s
+  // when a global env var leaks a bad URL — see PR #36).
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!url) return NextResponse.next();
+  try { new URL(url); } catch { return NextResponse.next(); }
+
   // Collect cookies into an array so we can apply them to whichever response
   // we end up returning (redirect or passthrough).
   const pendingCookies: CookieToSet[] = [];

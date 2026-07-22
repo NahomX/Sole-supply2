@@ -6,6 +6,7 @@ import { shoeSection } from "@/lib/labels";
 import { parseAvailableSizes } from "@/lib/sizes";
 import { categoryFromTitle } from "@/components/shoe-category";
 import { getSiteCopy, getCopy } from "@/lib/site-copy";
+import { contact } from "@/lib/contact";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -467,26 +468,22 @@ export default async function HomePage() {
             ሱቃችን ይምጡ ወይም ይደውሉልን
           </p>
         </div>
+        {/* Contact card values are configured via env vars (see lib/contact.ts). */}
         <div className="grid md:grid-cols-3 gap-5">
-          {/*
-            PLACEHOLDER: "Bole Road, Addis Ababa" is a stand-in address from the
-            approved mockup — owner to replace with the real store location
-            (and a real Maps link) before launch.
-          */}
           <div className="bg-paper border border-line rounded-[20px] p-7">
             <div className="text-[26px] mb-3.5" aria-hidden="true">
               📍
             </div>
             <h3 className="text-base font-extrabold mb-2">The store</h3>
             <p className="text-sm leading-relaxed text-[#55503f] mb-3.5">
-              Bole Road, Addis Ababa
+              {contact.addressEn}
               <br />
               <span lang="am" style={{ fontFamily: ETHIOPIC_FONT }}>
-                ቦሌ መንገድ፣ አዲስ አበባ
+                {contact.addressAm}
               </span>
             </p>
             <a
-              href="https://maps.google.com/?q=Bole+Road,+Addis+Ababa"
+              href={`https://maps.google.com/?q=${contact.mapsQuery}`}
               target="_blank"
               rel="noreferrer noopener"
               className="text-accent-deep font-extrabold text-[13.5px] hover:underline"
@@ -494,47 +491,53 @@ export default async function HomePage() {
               Open in Maps →
             </a>
           </div>
-          {/*
-            PLACEHOLDER: "+251 9XX XXX XXX" is a stand-in phone number from the
-            approved mockup — owner to replace with the real number (and a
-            working tel: link) before launch.
-          */}
           <div className="bg-paper border border-line rounded-[20px] p-7">
             <div className="text-[26px] mb-3.5" aria-hidden="true">
               📞
             </div>
             <h3 className="text-base font-extrabold mb-2">Call or text</h3>
             <p className="text-sm leading-relaxed text-[#55503f] mb-3.5">
-              +251 9XX XXX XXX
+              {contact.phone ? contact.phone : "Coming soon"}
               <br />
-              Mon–Sat, 9:00–19:00
+              {contact.hours}
             </p>
-            <span className="text-muted font-extrabold text-[13.5px]">
-              Call now →
-            </span>
+            {contact.phone ? (
+              <a
+                href={`tel:${contact.phoneTel}`}
+                className="text-accent-deep font-extrabold text-[13.5px] hover:underline"
+              >
+                Call now →
+              </a>
+            ) : (
+              <span className="text-muted font-extrabold text-[13.5px]">
+                Follow us for updates
+              </span>
+            )}
           </div>
-          {/*
-            PLACEHOLDER: "@berebaso" Telegram handle from the mockup — owner to
-            confirm the real handle before launch.
-          */}
           <div className="bg-paper border border-line rounded-[20px] p-7">
             <div className="text-[26px] mb-3.5" aria-hidden="true">
               💬
             </div>
             <h3 className="text-base font-extrabold mb-2">Telegram</h3>
             <p className="text-sm leading-relaxed text-[#55503f] mb-3.5">
-              Fastest way to ask a price
+              {contact.telegram ? "Fastest way to ask a price" : "Coming soon"}
               <br />
-              or hold a pair
+              {contact.telegram ? "or hold a pair" : "Follow us for updates"}
             </p>
-            <a
-              href="https://t.me/berebaso"
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-accent-deep font-extrabold text-[13.5px] hover:underline"
-            >
-              Message @berebaso →
-            </a>
+            {contact.telegram ? (
+              <a
+                href={contact.telegramUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-accent-deep font-extrabold text-[13.5px] hover:underline"
+              >
+                Message @{contact.telegram} →
+              </a>
+            ) : (
+              <span className="text-muted font-extrabold text-[13.5px]">
+                Stay tuned
+              </span>
+            )}
           </div>
         </div>
       </section>

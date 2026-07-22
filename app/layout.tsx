@@ -3,6 +3,7 @@ import { Inter, Noto_Sans_Ethiopic, Unbounded } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
 import { AuthNav } from "@/components/AuthNav";
+import { MobileNav } from "@/components/MobileNav";
 import { getSiteCopy, getCopy } from "@/lib/site-copy";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -28,8 +29,24 @@ const unbounded = Unbounded({
 });
 
 export const metadata: Metadata = {
-  title: "Berebaso",
-  description: "US sneakers, straight to Addis Ababa.",
+  title: {
+    default: "Berebaso",
+    template: "%s | Berebaso",
+  },
+  description: "US sneakers, straight to Addis Ababa. Hand-picked, 100% authentic, no fakes ever.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://berebaso.vercel.app"),
+  openGraph: {
+    title: "Berebaso",
+    description: "US sneakers, straight to Addis Ababa. Hand-picked, 100% authentic.",
+    siteName: "Berebaso",
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "Berebaso",
+    description: "US sneakers, straight to Addis Ababa.",
+  },
 };
 
 export default async function RootLayout({
@@ -91,6 +108,7 @@ export default async function RootLayout({
                 Visit us
               </Link>
             </nav>
+            <MobileNav />
             <div className="nav-auth ml-auto md:ml-0">
               <AuthNav />
             </div>

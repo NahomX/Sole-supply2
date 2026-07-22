@@ -27,6 +27,7 @@ const BOTS = [
   { name: "arrived",   tokenEnvVar: "ARRIVED_BOT_TOKEN" },
   { name: "delivery",  tokenEnvVar: "DELIVERY_BOT_TOKEN" },
   { name: "ops",       tokenEnvVar: "OPS_BOT_TOKEN" },
+  { name: "unified",   tokenEnvVar: "UNIFIED_BOT_TOKEN" },
 ];
 
 const [,, command, vercelUrl] = process.argv;

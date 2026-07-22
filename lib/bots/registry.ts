@@ -65,6 +65,13 @@ export const BOT_REGISTRY: BotEntry[] = [
     role: "admin",
     tokenEnvVar: "OPS_BOT_TOKEN",
   },
+  {
+    name: "unified",
+    description:
+      "Unified admin group bot — all ops in one group thread, per-action role enforcement.",
+    role: "admin",
+    tokenEnvVar: "UNIFIED_BOT_TOKEN",
+  },
 ];
 
 /** Look up a registry entry by bot name. Returns undefined if not found. */
