@@ -1,9 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabaseBrowser } from "@/lib/supabase";
 
 export default function SignInPage() {
+  const [sessionExpired, setSessionExpired] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("session") === "expired") setSessionExpired(true);
+  }, []);
+
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -39,6 +45,11 @@ export default function SignInPage() {
 
   return (
     <div className="max-w-sm mx-auto px-4 py-16">
+      {sessionExpired && (
+        <div className="mb-4 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Your session has expired. Please sign in again.
+        </div>
+      )}
       <h1 className="text-xl font-semibold mb-2">Sign in</h1>
       <p className="text-sm text-neutral-600 mb-6">
         Enter your email. We&apos;ll send a one-tap link — no password needed.
