@@ -39,7 +39,7 @@ export default async function AdminPage() {
   const isAdmin = role === "admin";
   const shoesQ = await db
     .from("shoes")
-    .select("*, shoe_sizes(*)")
+    .select("*, shoe_sizes(*), shoe_variants(*), shoe_images(*)")
     .order("created_at", { ascending: false });
   const shoes = (shoesQ.data as Shoe[]) ?? [];
 
