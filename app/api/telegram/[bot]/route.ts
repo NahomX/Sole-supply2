@@ -21,6 +21,7 @@ import {
   registerWorkBot,
   registerOpsBot,
 } from "@/lib/bots/handlers";
+import { registerUnifiedBot } from "@/lib/bots/unified-handler";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,6 +69,9 @@ export async function POST(
       break;
     case "ops":
       registerOpsBot(bot, entry);
+      break;
+    case "unified":
+      registerUnifiedBot(bot, entry);
       break;
     default:
       return NextResponse.json({ error: "unhandled bot" }, { status: 500 });
