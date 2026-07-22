@@ -92,8 +92,8 @@ begin
     where tablename = 'shoe_variants' and policyname = 'shoe_variants_admin_all'
   ) then
     create policy shoe_variants_admin_all on public.shoe_variants
-      for all using (public.is_admin())
-      with check (public.is_admin());
+      for all using (public.is_admin(auth.uid()))
+      with check (public.is_admin(auth.uid()));
   end if;
 end $$;
 
@@ -122,7 +122,7 @@ begin
     where tablename = 'shoe_images' and policyname = 'shoe_images_admin_all'
   ) then
     create policy shoe_images_admin_all on public.shoe_images
-      for all using (public.is_admin())
-      with check (public.is_admin());
+      for all using (public.is_admin(auth.uid()))
+      with check (public.is_admin(auth.uid()));
   end if;
 end $$;
