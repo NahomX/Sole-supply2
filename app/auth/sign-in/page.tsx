@@ -33,45 +33,49 @@ export default function SignInPage() {
 
   if (sent) {
     return (
-      <div className="max-w-sm mx-auto px-4 py-16 text-center">
-        <h1 className="text-xl font-semibold mb-3">Check your email</h1>
-        <p className="text-sm text-neutral-600">
-          We sent a magic sign-in link to <strong>{email}</strong>. Open it on
-          this device to finish signing in.
-        </p>
+      <div className="min-h-[60vh] flex items-center justify-center px-4">
+        <div className="bg-white text-gray-900 rounded-2xl shadow-2xl p-8 w-full max-w-sm text-center">
+          <h1 className="text-xl font-semibold mb-3">Check your email</h1>
+          <p className="text-sm text-neutral-600">
+            We sent a magic sign-in link to <strong>{email}</strong>. Open it on
+            this device to finish signing in.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-sm mx-auto px-4 py-16">
-      {sessionExpired && (
-        <div className="mb-4 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Your session has expired. Please sign in again.
-        </div>
-      )}
-      <h1 className="text-xl font-semibold mb-2">Sign in</h1>
-      <p className="text-sm text-neutral-600 mb-6">
-        Enter your email. We&apos;ll send a one-tap link — no password needed.
-      </p>
-      <form onSubmit={sendLink} className="space-y-3">
-        <input
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@example.com"
-          className="w-full border border-neutral-300 rounded px-3 py-2 text-sm"
-        />
-        <button
-          type="submit"
-          disabled={loading || !email}
-          className="w-full px-4 py-2 rounded bg-black text-white text-sm disabled:opacity-50"
-        >
-          {loading ? "Sending..." : "Send magic link"}
-        </button>
-        {error && <div className="text-sm text-red-600">{error}</div>}
-      </form>
+    <div className="min-h-[60vh] flex items-center justify-center px-4">
+      <div className="bg-white text-gray-900 rounded-2xl shadow-2xl p-8 w-full max-w-sm">
+        {sessionExpired && (
+          <div className="mb-4 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Your session has expired. Please sign in again.
+          </div>
+        )}
+        <h1 className="text-xl font-semibold mb-2">Sign in</h1>
+        <p className="text-sm text-neutral-600 mb-6">
+          Enter your email. We&apos;ll send a one-tap link — no password needed.
+        </p>
+        <form onSubmit={sendLink} className="space-y-3">
+          <input
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            className="w-full border border-neutral-300 rounded px-3 py-2 text-sm"
+          />
+          <button
+            type="submit"
+            disabled={loading || !email}
+            className="w-full px-4 py-2 rounded bg-black text-white text-sm disabled:opacity-50"
+          >
+            {loading ? "Sending..." : "Send magic link"}
+          </button>
+          {error && <div className="text-sm text-red-600">{error}</div>}
+        </form>
+      </div>
     </div>
   );
 }

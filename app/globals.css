@@ -3,7 +3,17 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
+  /* Dark theme tokens — single source of truth for the storefront palette.
+     Accent red is the hero color; change it here to update everywhere. */
+  --color-bg: #0a0a0a;
+  --color-surface: #141414;
+  --color-surface-2: #1e1e1e;
+  --color-text: #f0f0f0;
+  --color-text-muted: #8a8a8a;
+  --color-accent: #dc2626;
+  --color-accent-hover: #b91c1c;
+  --color-accent-glow: rgba(220, 38, 38, 0.3);
+  --color-border: #262626;
 }
 
 html {
@@ -12,10 +22,7 @@ html {
 
 html,
 body {
-  /* Redesign: warm cream canvas + near-black ink text (mockup --cream / --ink).
-     Note: this background is shared by /auth, /submit and /admin too — their
-     white cards still read fine on cream. */
-  @apply bg-cream text-ink;
+  @apply bg-[var(--color-bg)] text-[var(--color-text)];
 }
 
 /* ---------------------------------------------------------------------------

@@ -21,11 +21,13 @@ export default async function AdminPage() {
   const role = session.profile?.role ?? "customer";
   if (role !== "admin" && role !== "shipper") {
     return (
-      <div className="max-w-md mx-auto px-4 py-16 text-center">
-        <h1 className="text-xl font-semibold mb-2">Not authorized</h1>
-        <p className="text-sm text-neutral-600">
-          This area is for admins only.
-        </p>
+      <div className="bg-white text-gray-900 min-h-screen -mt-px">
+        <div className="max-w-md mx-auto px-4 py-16 text-center">
+          <h1 className="text-xl font-semibold mb-2">Not authorized</h1>
+          <p className="text-sm text-neutral-600">
+            This area is for admins only.
+          </p>
+        </div>
       </div>
     );
   }
@@ -116,17 +118,19 @@ export default async function AdminPage() {
   }
 
   return (
-    <AdminDashboard
-      me={session.email ?? ""}
-      role={role}
-      shoes={shoes}
-      profiles={profiles}
-      interestsByShoe={Object.fromEntries(interestsByShoe)}
-      eventsByShoe={eventsByShoe}
-      staleShoeIds={staleShoeIds}
-      staleAgeDaysById={staleAgeDaysById}
-      recentPayments={recentPayments}
-      paymentsEnabled={paymentsEnabled}
-    />
+    <div className="bg-white text-gray-900 min-h-screen -mt-px">
+      <AdminDashboard
+        me={session.email ?? ""}
+        role={role}
+        shoes={shoes}
+        profiles={profiles}
+        interestsByShoe={Object.fromEntries(interestsByShoe)}
+        eventsByShoe={eventsByShoe}
+        staleShoeIds={staleShoeIds}
+        staleAgeDaysById={staleAgeDaysById}
+        recentPayments={recentPayments}
+        paymentsEnabled={paymentsEnabled}
+      />
+    </div>
   );
 }

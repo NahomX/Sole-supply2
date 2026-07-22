@@ -93,16 +93,16 @@ export function ShoeCard({
   // Status pill — mockup palette (NEVER "In Addis"; no internal pipeline labels).
   const pill =
     section === "in-stock"
-      ? { text: "● In stock", className: "bg-[#e3f6ec] text-[#137044]" }
+      ? { text: "● In stock", className: "bg-emerald-900/40 text-emerald-400" }
       : section === "on-the-way"
-      ? { text: "✈ On the way", className: "bg-[#fff1e6] text-accent-deep" }
+      ? { text: "✈ On the way", className: "bg-amber-900/40 text-amber-400" }
       : section === "previously"
-      ? { text: "Sold", className: "bg-neutral-200 text-neutral-600" }
-      : { text: "Coming soon", className: "bg-[#eee9df] text-[#6b6354]" };
+      ? { text: "Sold", className: "bg-neutral-800 text-neutral-400" }
+      : { text: "Coming soon", className: "bg-neutral-800/50 text-neutral-400" };
 
   return (
     <div
-      className={`group bg-paper border border-line rounded-[20px] overflow-hidden flex flex-col transition-[transform,box-shadow] duration-200 hover:-translate-y-1 hover:shadow-[0_24px_48px_rgba(30,25,15,0.13)] ${
+      className={`group bg-surface border border-th-border rounded-[20px] overflow-hidden flex flex-col transition-[transform,box-shadow] duration-200 hover:-translate-y-1 hover:shadow-[0_24px_48px_rgba(220,38,38,0.1)] ${
         dim ? "opacity-60" : ""
       }`}
     >
@@ -112,7 +112,7 @@ export function ShoeCard({
         style={{
           aspectRatio: "1 / 1.02",
           background:
-            "radial-gradient(circle at 50% 38%, #ffffff 0%, #efe9dc 100%)",
+            "radial-gradient(circle at 50% 38%, #1a1a1a 0%, #111111 100%)",
         }}
       >
         {showVideo && shoe.video_url ? (
@@ -143,7 +143,7 @@ export function ShoeCard({
           <img
             src={shoe.image_url}
             alt={shoe.title}
-            className="w-[94%] max-h-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-300"
+            className="w-[94%] max-h-full object-contain group-hover:scale-105 transition-transform duration-300"
             onError={() => setImgError(true)}
           />
         ) : (
@@ -154,14 +154,14 @@ export function ShoeCard({
             accepts any URL), so load errors are expected and this fallback
             is the correct resilience mechanism — not restricting remotePatterns.
           */
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-neutral-400">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-th-muted/60">
             <svg
               aria-hidden="true"
               width="32"
               height="32"
               viewBox="0 0 64 64"
               fill="none"
-              className="text-neutral-300"
+              className="text-th-muted/40"
             >
               <path
                 d="M8 44c0 0 4-8 12-10l8-2 6-8 10 4 4-4 8 6v8c0 2-2 4-4 4H12c-2 0-4-2-4-4z"
@@ -193,7 +193,7 @@ export function ShoeCard({
           <button
             type="button"
             onClick={() => setShowVideo(true)}
-            className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-ink text-cream text-[11px] font-bold rounded-[9px] px-2.5 py-2 shadow-md hover:bg-accent-deep transition-colors"
+            className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-[var(--color-accent)]/80 text-white text-[11px] font-bold rounded-[9px] px-2.5 py-2 shadow-md hover:bg-[var(--color-accent)] transition-colors"
             aria-label="Watch hands-on video"
           >
             <span aria-hidden="true">▶</span> Video
@@ -204,7 +204,7 @@ export function ShoeCard({
       <div className="p-[18px] pb-5 flex-1 flex flex-col gap-3">
         <div>
           {shoe.brand && (
-            <div className="text-[10.5px] font-extrabold uppercase tracking-[0.16em] text-muted">
+            <div className="text-[10.5px] font-extrabold uppercase tracking-[0.16em] text-th-muted">
               {shoe.brand}
             </div>
           )}
@@ -227,14 +227,14 @@ export function ShoeCard({
           ) : (
             <Link
               href="/#visit"
-              className="text-[11.5px] font-extrabold border-[1.5px] border-line hover:border-ink rounded-full px-3 py-1.5 bg-cream whitespace-nowrap"
+              className="text-[11.5px] font-extrabold border-[1.5px] border-th-border hover:border-white/60 rounded-full px-3 py-1.5 bg-surface-2 text-th-muted whitespace-nowrap"
             >
               ☎ Contact for price
             </Link>
           )}
           <Link
             href={`/shoe/${shoe.id}`}
-            className="text-[12.5px] font-bold text-accent-deep hover:underline whitespace-nowrap"
+            className="text-[12.5px] font-bold text-[var(--color-accent)] hover:underline whitespace-nowrap"
           >
             Details ↗
           </Link>
@@ -244,7 +244,7 @@ export function ShoeCard({
             get the explicit "Coming in US" treatment from the mockup. */}
         {sizes.length > 0 ? (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted mr-0.5">
+            <span className="text-[11px] font-bold uppercase tracking-[0.06em] text-th-muted mr-0.5">
               {isComingSoon ? "Coming in US" : "US"}
             </span>
             {sizes.map((us) => (
@@ -252,8 +252,8 @@ export function ShoeCard({
                 key={us}
                 className={
                   isComingSoon
-                    ? "text-xs font-bold border-[1.5px] border-accent-deep/45 text-accent-deep bg-[#fff4ea] rounded-lg px-2 py-1"
-                    : "text-xs font-bold border-[1.5px] border-line text-[#4d493f] bg-cream rounded-lg px-2 py-1"
+                    ? "text-xs font-bold border-[1.5px] border-[var(--color-accent)]/40 text-[var(--color-accent)] bg-[var(--color-accent)]/10 rounded-lg px-2 py-1"
+                    : "text-xs font-bold border-[1.5px] border-th-border text-th-muted bg-surface-2 rounded-lg px-2 py-1"
                 }
               >
                 {us}
@@ -261,7 +261,7 @@ export function ShoeCard({
             ))}
           </div>
         ) : shoe.sizes && shoe.sizes.trim() ? (
-          <p className="text-[11px] text-muted italic">
+          <p className="text-[11px] text-th-muted italic">
             Sizes TBA ·{" "}
             <span lang="am" style={{ fontFamily: ETHIOPIC_FONT }}>
               መጠን በቅርቡ
@@ -276,35 +276,35 @@ export function ShoeCard({
             href={shoe.url}
             target="_blank"
             rel="noreferrer noopener"
-            className="text-[11px] text-blue-700 hover:underline w-fit"
+            className="text-[11px] text-blue-400 hover:underline w-fit"
           >
             Producer site → (admin)
           </a>
         )}
 
         {mode === "request" && (
-          <div className="space-y-2 border-t border-line pt-2.5">
+          <div className="space-y-2 border-t border-th-border pt-2.5">
             <input
               type="text"
               value={size}
               onChange={(e) => setSize(e.target.value)}
               placeholder="Size (optional)"
-              className="w-full border border-line bg-paper rounded-lg px-2.5 py-1.5 text-xs"
+              className="w-full border border-th-border bg-surface-2 text-th-text rounded-lg px-2.5 py-1.5 text-xs"
             />
             <input
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Notes (optional)"
-              className="w-full border border-line bg-paper rounded-lg px-2.5 py-1.5 text-xs"
+              className="w-full border border-th-border bg-surface-2 text-th-text rounded-lg px-2.5 py-1.5 text-xs"
             />
-            {err && <div className="text-xs text-red-600">{err}</div>}
+            {err && <div className="text-xs text-red-400">{err}</div>}
             <div className="flex gap-1.5">
               <button
                 type="button"
                 onClick={send}
                 disabled={loading}
-                className="flex-1 text-[13px] font-extrabold rounded-xl px-2 py-2.5 disabled:opacity-50 text-cream bg-ink hover:bg-accent-deep focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent transition-colors"
+                className="flex-1 text-[13px] font-extrabold rounded-xl px-2 py-2.5 disabled:opacity-50 text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent transition-colors"
               >
                 {loading ? "Sending..." : "Send request"}
               </button>
@@ -312,7 +312,7 @@ export function ShoeCard({
                 type="button"
                 onClick={() => setMode("idle")}
                 disabled={loading}
-                className="text-xs font-bold border-[1.5px] border-line rounded-xl px-3 py-2.5 hover:border-ink"
+                className="text-xs font-bold border-[1.5px] border-th-border text-th-muted rounded-xl px-3 py-2.5 hover:border-white/60"
               >
                 Cancel
               </button>
@@ -323,7 +323,7 @@ export function ShoeCard({
         {/* CTA row */}
         <div className="mt-auto flex items-stretch gap-2 pt-1">
           {alreadyRequested && shoe.status !== "sold" && (
-            <div className="flex-1 text-[13px] font-bold text-center text-accent-green border-[1.5px] border-accent-green/40 bg-[#e3f6ec] rounded-xl px-2 py-2.5">
+            <div className="flex-1 text-[13px] font-bold text-center text-emerald-400 border-[1.5px] border-emerald-500/40 bg-emerald-900/30 rounded-xl px-2 py-2.5">
               Requested ✓
             </div>
           )}
@@ -339,8 +339,8 @@ export function ShoeCard({
               onClick={() => setMode("request")}
               className={`flex-1 flex items-center justify-center gap-1.5 text-[13.5px] font-extrabold rounded-xl px-2 py-3 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${
                 isComingSoon
-                  ? "border-[1.5px] border-ink text-ink hover:bg-ink hover:text-cream"
-                  : "bg-ink text-cream hover:bg-accent-deep"
+                  ? "border-[1.5px] border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white"
+                  : "bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]"
               }`}
               title="I want this / እፈልጋለሁ"
             >
@@ -362,7 +362,7 @@ export function ShoeCard({
           {!signedIn && shoe.status !== "sold" && (
             <Link
               href="/auth/sign-in"
-              className="flex-1 text-center text-[13px] font-bold border-[1.5px] border-line text-muted rounded-xl px-2 py-3 hover:border-ink hover:text-ink transition-colors"
+              className="flex-1 text-center text-[13px] font-bold border-[1.5px] border-th-border text-th-muted rounded-xl px-2 py-3 hover:border-white/60 hover:text-white transition-colors"
             >
               Sign in to reserve
             </Link>

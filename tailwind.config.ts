@@ -30,24 +30,27 @@ const config: Config = {
         ],
       },
       colors: {
-        // Redesign palette (docs/presentation/redesign/index.html is the source
-        // of truth). Names that would clobber Tailwind's default scales
-        // (orange/amber/green — AdminDashboard.tsx uses amber-50..900) are
-        // namespaced under "accent":
-        //   mockup --orange      → accent        #f4641e
-        //   mockup --orange-deep → accent-deep   #c8430a
-        //   mockup --amber       → accent-amber  #ffb25e
-        //   mockup --green       → accent-green  #1e9e5a
+        // Keep existing (admin/auth pages rely on these)
         ink: "#0e0d0b",
         "ink-2": "#171511",
         cream: "#f6f2ea",
         paper: "#fffdf8",
-        accent: "#f4641e",
-        "accent-deep": "#c8430a",
         "accent-amber": "#ffb25e",
         "accent-green": "#1e9e5a",
         line: "#e7e0d2",
         muted: "#8b8576",
+
+        // CHANGED: accent from orange to red (storefront + anywhere `accent` is used)
+        accent: "var(--color-accent)",
+        "accent-deep": "var(--color-accent-hover)",
+
+        // NEW: dark theme surface tokens
+        dark: "var(--color-bg)",
+        surface: "var(--color-surface)",
+        "surface-2": "var(--color-surface-2)",
+        "th-text": "var(--color-text)",
+        "th-muted": "var(--color-text-muted)",
+        "th-border": "var(--color-border)",
       },
     },
   },

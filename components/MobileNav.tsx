@@ -26,7 +26,7 @@ export function MobileNav() {
         )}
       </button>
       {open && (
-        <div className="absolute left-0 right-0 top-full bg-ink/95 backdrop-blur-md border-b border-white/10 px-4 py-4 flex flex-col gap-3 text-[14px] font-semibold z-50">
+        <div className="absolute left-0 right-0 top-full bg-[#0c0c0c]/98 backdrop-blur-md border-b border-white/10 px-4 py-4 flex flex-col gap-3 text-[14px] font-semibold z-50">
           <Link href="/#in-stock" onClick={() => setOpen(false)} className="text-cream/70 hover:text-cream">In stock</Link>
           <Link href="/#on-the-way" onClick={() => setOpen(false)} className="text-cream/70 hover:text-cream">On the way</Link>
           <Link href="/#coming-soon" onClick={() => setOpen(false)} className="text-cream/70 hover:text-cream">Coming soon</Link>
