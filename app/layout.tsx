@@ -68,7 +68,7 @@ export default async function RootLayout({
           AuthNav is shared and untouched — .nav-auth (app/globals.css) recolors
           its light-background text classes for the dark bar.
         */}
-        <header className="sticky top-0 z-50 bg-ink/90 text-cream backdrop-blur-md border-b border-white/10">
+        <header className="sticky top-0 z-50 bg-[#0c0c0c]/95 text-cream backdrop-blur-md border-b border-white/10">
           <div className="max-w-7xl mx-auto px-4 md:px-7 py-4 flex items-center gap-6">
             {/*
               Bilingual wordmark: Latin "BEREBASO" in the display face, Amharic
@@ -116,7 +116,7 @@ export default async function RootLayout({
         </header>
         <main className="flex-1">{children}</main>
         {/* Dark footer (mockup) — keeps the editable site-copy "footer" key. */}
-        <footer className="bg-ink text-cream/55 border-t border-white/10 text-[13px]">
+        <footer className="bg-[#050505] text-cream/55 border-t border-white/10 text-[13px]">
           <div className="max-w-7xl mx-auto px-4 md:px-7 py-8 flex flex-wrap items-center justify-between gap-3">
             <span className="flex items-baseline gap-2">
               <span className="font-display text-sm font-bold text-cream">

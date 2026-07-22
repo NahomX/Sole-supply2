@@ -79,12 +79,12 @@ export default async function ShoeDetailsPage({
   const isComingSoon = section === "coming-soon";
   const pill =
     section === "in-stock"
-      ? { text: "● In stock", className: "bg-[#e3f6ec] text-[#137044]" }
+      ? { text: "● In stock", className: "bg-emerald-900/40 text-emerald-400" }
       : section === "on-the-way"
-      ? { text: "✈ On the way", className: "bg-[#fff1e6] text-accent-deep" }
+      ? { text: "✈ On the way", className: "bg-amber-900/40 text-amber-400" }
       : section === "previously"
-      ? { text: "Sold", className: "bg-neutral-200 text-neutral-600" }
-      : { text: "Coming soon", className: "bg-[#eee9df] text-[#6b6354]" };
+      ? { text: "Sold", className: "bg-neutral-800 text-neutral-400" }
+      : { text: "Coming soon", className: "bg-neutral-800/50 text-neutral-400" };
 
   const entries = listedEntries(shoe);
   const requestableSizes = entries
@@ -95,7 +95,7 @@ export default async function ShoeDetailsPage({
     <div className="max-w-7xl mx-auto px-4 md:px-7 py-10 md:py-14">
       <Link
         href="/"
-        className="inline-flex items-center gap-1.5 text-[13.5px] font-bold text-muted hover:text-ink transition-colors"
+        className="inline-flex items-center gap-1.5 text-[13.5px] font-bold text-th-muted hover:text-white transition-colors"
       >
         ← Back to the drop
       </Link>
@@ -104,17 +104,17 @@ export default async function ShoeDetailsPage({
         {/* ----- Media column ----- */}
         <div>
           <div
-            className="relative border border-line rounded-[24px] overflow-hidden flex items-center justify-center"
+            className="relative border border-th-border rounded-[24px] overflow-hidden flex items-center justify-center"
             style={{
               aspectRatio: "1 / 1",
               background:
-                "radial-gradient(circle at 50% 38%, #ffffff 0%, #efe9dc 100%)",
+                "radial-gradient(circle at 50% 38%, #1a1a1a 0%, #111111 100%)",
             }}
           >
             <ShoeImage
               src={shoe.image_url}
               alt={shoe.title}
-              className="w-[92%] max-h-full object-contain mix-blend-multiply"
+              className="w-[92%] max-h-full object-contain"
             />
             <span
               className={`absolute top-4 left-4 text-[10.5px] font-extrabold uppercase tracking-[0.1em] px-3 py-1.5 rounded-full ${pill.className}`}
@@ -126,7 +126,7 @@ export default async function ShoeDetailsPage({
           {/* Hands-on video — only when an admin attached one (video_url). */}
           {shoe.video_url && (
             <div className="mt-5">
-              <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-muted mb-2">
+              <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-th-muted mb-2">
                 Hands-on video ·{" "}
                 <span
                   lang="am"
@@ -142,7 +142,7 @@ export default async function ShoeDetailsPage({
                 controls
                 playsInline
                 preload="metadata"
-                className="w-full rounded-[20px] border border-line bg-ink"
+                className="w-full rounded-[20px] border border-th-border bg-ink"
               />
             </div>
           )}
@@ -151,7 +151,7 @@ export default async function ShoeDetailsPage({
         {/* ----- Details column ----- */}
         <div>
           {shoe.brand && (
-            <div className="text-xs font-extrabold uppercase tracking-[0.16em] text-muted">
+            <div className="text-xs font-extrabold uppercase tracking-[0.16em] text-th-muted">
               {shoe.brand}
             </div>
           )}
@@ -170,7 +170,7 @@ export default async function ShoeDetailsPage({
             ) : (
               <Link
                 href="/#visit"
-                className="inline-flex items-center text-[13px] font-extrabold border-[1.5px] border-line hover:border-ink rounded-full px-4 py-2 bg-cream"
+                className="inline-flex items-center text-[13px] font-extrabold border-[1.5px] border-th-border hover:border-white/60 rounded-full px-4 py-2 bg-surface-2 text-th-muted"
               >
                 ☎ Contact for price
               </Link>
@@ -180,7 +180,7 @@ export default async function ShoeDetailsPage({
           {/* Per-size availability */}
           {entries.length > 0 ? (
             <div className="mt-7">
-              <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-muted mb-2.5">
+              <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-th-muted mb-2.5">
                 {isComingSoon ? "Coming in US sizes" : "US sizes"} ·{" "}
                 <span
                   lang="am"
@@ -195,12 +195,12 @@ export default async function ShoeDetailsPage({
                   const state = e.customerState ?? "coming-soon";
                   const chip =
                     state === "in-stock"
-                      ? "border-accent-green/50 bg-[#e3f6ec] text-[#137044]"
+                      ? "border-emerald-500/40 bg-emerald-900/30 text-emerald-400"
                       : state === "on-the-way"
-                      ? "border-accent-deep/40 bg-[#fff1e6] text-accent-deep"
+                      ? "border-amber-500/40 bg-amber-900/30 text-amber-400"
                       : state === "sold-out"
-                      ? "border-line bg-neutral-100 text-neutral-400 line-through"
-                      : "border-line bg-cream text-[#4d493f]";
+                      ? "border-th-border bg-neutral-800/50 text-neutral-500 line-through"
+                      : "border-th-border bg-surface-2 text-th-muted";
                   const stateText =
                     state === "in-stock"
                       ? "In stock"
@@ -227,7 +227,7 @@ export default async function ShoeDetailsPage({
               </div>
             </div>
           ) : shoe.sizes && shoe.sizes.trim() ? (
-            <p className="mt-7 text-sm text-muted italic">
+            <p className="mt-7 text-sm text-th-muted italic">
               Sizes TBA ·{" "}
               <span lang="am" style={{ fontFamily: ETHIOPIC_FONT }}>
                 መጠን በቅርቡ
@@ -237,7 +237,7 @@ export default async function ShoeDetailsPage({
 
           {/* Notes / description */}
           {shoe.notes && shoe.notes.trim() && (
-            <p className="mt-7 text-[15px] leading-relaxed text-[#55503f] max-w-prose whitespace-pre-line">
+            <p className="mt-7 text-[15px] leading-relaxed text-th-muted max-w-prose whitespace-pre-line">
               {shoe.notes}
             </p>
           )}
@@ -254,7 +254,7 @@ export default async function ShoeDetailsPage({
 
           {/* Pay-on-pickup reassurance (mirrors the How-it-works band). */}
           {shoe.status !== "sold" && (
-            <p className="mt-4 text-[13px] text-muted">
+            <p className="mt-4 text-[13px] text-th-muted">
               No card needed — pay on pickup in Addis Ababa, cash or Telebirr.
             </p>
           )}
@@ -262,7 +262,7 @@ export default async function ShoeDetailsPage({
           {/* Admin-only: procurement source + US price. Both are blanked /
               nulled server-side for everyone else (redactForViewer). */}
           {isAdmin && (shoe.url || shoe.price_usd != null) && (
-            <div className="mt-8 border-t border-line pt-4 text-[13px] text-muted space-y-1">
+            <div className="mt-8 border-t border-th-border pt-4 text-[13px] text-th-muted space-y-1">
               <p className="font-bold uppercase tracking-[0.1em] text-[11px]">
                 Admin
               </p>
@@ -272,7 +272,7 @@ export default async function ShoeDetailsPage({
                   href={shoe.url}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="text-blue-700 hover:underline"
+                  className="text-blue-400 hover:underline"
                 >
                   Producer site →
                 </a>

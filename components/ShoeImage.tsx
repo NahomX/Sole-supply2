@@ -29,14 +29,14 @@ export function ShoeImage({
   if (!src || errored) {
     if (fallback === "hide") return null;
     return (
-      <div className="flex flex-col items-center justify-center gap-1 text-neutral-400 py-16">
+      <div className="flex flex-col items-center justify-center gap-1 text-th-muted py-16">
         <svg
           aria-hidden="true"
           width="48"
           height="48"
           viewBox="0 0 64 64"
           fill="none"
-          className="text-neutral-300"
+          className="text-th-muted/50"
         >
           <path
             d="M8 44c0 0 4-8 12-10l8-2 6-8 10 4 4-4 8 6v8c0 2-2 4-4 4H12c-2 0-4-2-4-4z"

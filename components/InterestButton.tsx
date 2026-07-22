@@ -42,7 +42,7 @@ export function InterestButton({
     return (
       <Link
         href="/auth/sign-in"
-        className="inline-flex items-center justify-center text-sm font-bold border-[1.5px] border-line text-muted rounded-xl px-6 py-3 hover:border-ink hover:text-ink transition-colors"
+        className="inline-flex items-center justify-center text-sm font-bold border-[1.5px] border-th-border text-th-muted rounded-xl px-6 py-3 hover:border-white/60 hover:text-white transition-colors"
       >
         Sign in to reserve
       </Link>
@@ -51,7 +51,7 @@ export function InterestButton({
 
   if (alreadyRequested) {
     return (
-      <div className="inline-flex items-center text-sm font-bold text-accent-green border-[1.5px] border-accent-green/40 bg-[#e3f6ec] rounded-xl px-6 py-3">
+      <div className="inline-flex items-center text-sm font-bold text-emerald-400 border-[1.5px] border-emerald-500/40 bg-emerald-900/30 rounded-xl px-6 py-3">
         Requested ✓ — we&apos;ll reach out
       </div>
     );
@@ -84,7 +84,7 @@ export function InterestButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 text-sm font-extrabold bg-ink text-cream rounded-xl px-7 py-3.5 hover:bg-accent-deep transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+        className="inline-flex items-center gap-2 text-sm font-extrabold bg-[var(--color-accent)] text-white rounded-xl px-7 py-3.5 hover:bg-[var(--color-accent-hover)] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
       >
         I want this ·{" "}
         <span lang="am" style={{ fontFamily: ETHIOPIC_FONT, lineHeight: 1.4 }}>
@@ -106,7 +106,7 @@ export function InterestButton({
               className={`text-xs font-bold rounded-lg px-2.5 py-1.5 border-[1.5px] transition-colors ${
                 size === us
                   ? "border-accent bg-accent text-white"
-                  : "border-line bg-cream text-[#4d493f] hover:border-ink"
+                  : "border-th-border bg-surface-2 text-th-muted hover:border-white/60"
               }`}
             >
               US {us}
@@ -119,22 +119,22 @@ export function InterestButton({
         value={size}
         onChange={(e) => setSize(e.target.value)}
         placeholder="Size (optional)"
-        className="w-full border border-line bg-paper rounded-lg px-3 py-2 text-sm"
+        className="w-full border border-th-border bg-surface-2 text-th-text rounded-lg px-3 py-2 text-sm"
       />
       <input
         type="text"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Notes (optional)"
-        className="w-full border border-line bg-paper rounded-lg px-3 py-2 text-sm"
+        className="w-full border border-th-border bg-surface-2 text-th-text rounded-lg px-3 py-2 text-sm"
       />
-      {err && <div className="text-xs text-red-600">{err}</div>}
+      {err && <div className="text-xs text-red-400">{err}</div>}
       <div className="flex gap-2">
         <button
           type="button"
           onClick={send}
           disabled={loading}
-          className="flex-1 text-sm font-extrabold rounded-xl px-4 py-2.5 disabled:opacity-50 text-cream bg-ink hover:bg-accent-deep transition-colors"
+          className="flex-1 text-sm font-extrabold rounded-xl px-4 py-2.5 disabled:opacity-50 text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] transition-colors"
         >
           {loading ? "Sending..." : "Send request"}
         </button>
@@ -142,7 +142,7 @@ export function InterestButton({
           type="button"
           onClick={() => setOpen(false)}
           disabled={loading}
-          className="text-sm font-bold border-[1.5px] border-line rounded-xl px-4 py-2.5 hover:border-ink"
+          className="text-sm font-bold border-[1.5px] border-th-border text-th-muted rounded-xl px-4 py-2.5 hover:border-white/60"
         >
           Cancel
         </button>
