@@ -70,6 +70,7 @@ export function AdminDashboard({
 
   const staleSet = new Set(staleShoeIds);
   const staleCount = staleShoeIds.length;
+  const [exporting, setExporting] = useState(false);
 
   // Filter state — "shoes" tab only
   const [salesStatusFilter, setSalesStatusFilter] = useState<ShoeStatus | "">("");
@@ -236,13 +237,53 @@ export function AdminDashboard({
       ? filteredShoes.filter((s) => staleSet.has(s.id))
       : filteredShoes;
 
+  async function exportToExcel() {
+    setExporting(true);
+    try {
+      const res = await fetch("/api/admin/export");
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setMsg(j.error ?? "Export failed.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      // Extract filename from Content-Disposition, or use a default.
+      const cd = res.headers.get("content-disposition");
+      const match = cd?.match(/filename="?([^"]+)"?/);
+      a.download = match?.[1] ?? "sole-supply-shoes.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setMsg("Export failed — network error.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-10">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">
           {isAdmin ? "Admin" : "Logistics"}
         </h1>
-        <div className="text-xs text-neutral-500">{me}</div>
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={exportToExcel}
+              disabled={exporting}
+              className="px-3 py-1.5 rounded border border-neutral-300 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 transition-colors"
+            >
+              {exporting ? "Exporting..." : "Export to Excel"}
+            </button>
+          )}
+          <div className="text-xs text-neutral-500">{me}</div>
+        </div>
       </div>
 
       {tabs.length > 1 && (
