@@ -44,6 +44,10 @@
  *   u_ls:{shoeId}:{usSize}         — pick size
  *   u_lt:{shoeId}:{usSize}:{st}    — set status (st can be "null")
  *
+ * List filter:
+ *   u_lf:{filter}                  — filter (all|in_cart|purchased|arrived|delivered|sz)
+ *   u_lz:{usSize}                  — filter by specific US size
+ *
  * Edit:
  *   u_ep:{shoeId}                  — pick shoe
  *   u_ef:{shoeId}:{field}          — field chosen
@@ -494,7 +498,7 @@ export function registerUnifiedBot(bot: Bot, entry: BotEntry): void {
         "/remove — hide a shoe from the storefront\n" +
         "/clearvideo — remove a shoe's video\n" +
         "/copy — edit website copy\n" +
-        "/list — full pipeline overview\n" +
+        "/list — pipeline overview (filter by status/size)\n" +
         "/whoami — your Telegram ID\n" +
         "/help — this message\n\n" +
         "Send a video to attach it to a shoe (admin).\n" +
@@ -525,7 +529,7 @@ export function registerUnifiedBot(bot: Bot, entry: BotEntry): void {
         "  /remove — soft-remove shoe\n" +
         "  /clearvideo — clear shoe video\n" +
         "  /copy — website copy\n" +
-        "  /list — full pipeline\n\n" +
+        "  /list — pipeline (filter by status/size)\n\n" +
         "Photo: send a photo → pick flow → AI match\n" +
         "Video: send a video → pick shoe → attach (admin)\n" +
         "Text: plain instruction → confirm (admin, NL editing)"
@@ -633,7 +637,7 @@ export function registerUnifiedBot(bot: Bot, entry: BotEntry): void {
     for (const sz of selectedSizes) {
       const addResult = await addSize(shoeId, sz, qty);
       if (addResult.error) {
-        errors.push(`US ${sz}: ${addResult.error}`);
+        errors.push(`US ${sz} addSize: ${addResult.error}`);
         continue;
       }
       const statusResult = await setSizeStatus(
@@ -643,14 +647,32 @@ export function registerUnifiedBot(bot: Bot, entry: BotEntry): void {
         botMeta(ctx, entry.name)
       );
       if (statusResult.error)
-        errors.push(`US ${sz}: ${statusResult.error}`);
+        errors.push(`US ${sz} setSizeStatus: ${statusResult.error}`);
     }
     const sizeList = selectedSizes.map((s) => `US ${s}`).join(", ");
     const qtyNote = qty > 1 ? ` (${qty} pair${qty === 1 ? "" : "s"} each)` : "";
+    const successCount = selectedSizes.length - errors.length;
     if (errors.length > 0) {
-      await ctx.reply(
-        `Added ${selectedSizes.length - errors.length} size(s) to in-cart${qtyNote}. Errors:\n${errors.join("\n")}`
+      // Log full error details server-side for debugging
+      console.error(
+        `[unified-bot] /add size insertion failed for shoe ${shoeId}: ${successCount}/${selectedSizes.length} succeeded`,
+        errors
       );
+      if (successCount === 0) {
+        // ALL sizes failed — loud, unambiguous message
+        await ctx.reply(
+          `\u{26A0}\u{FE0F} 0 of ${selectedSizes.length} sizes saved. The shoe was created but has NO sizes.\n\n` +
+            `Errors:\n${errors.join("\n")}\n\n` +
+            `This may indicate a database issue (e.g. missing column from an unapplied migration). ` +
+            `Try adding sizes manually via /logistics or the web admin panel.`
+        );
+      } else {
+        // Partial failure — some saved, some not
+        await ctx.reply(
+          `\u{26A0}\u{FE0F} ${successCount} of ${selectedSizes.length} sizes saved to in-cart${qtyNote}. ` +
+            `${errors.length} failed:\n${errors.join("\n")}`
+        );
+      }
     } else {
       await ctx.reply(`Done! ${sizeList} added and set to in_cart${qtyNote}.`);
     }
@@ -1123,11 +1145,93 @@ export function registerUnifiedBot(bot: Bot, entry: BotEntry): void {
   });
 
   // -----------------------------------------------------------------
-  // /list — full pipeline overview (admin)
+  // /list — filtered pipeline overview (admin)
+  //
+  // Usage:
+  //   /list              → show filter buttons (status / size / all)
+  //   /list all          → full pipeline dump
+  //   /list <status>     → shoes with at least one size at that status
+  //   /list size <N>     → shoes that carry US size N
   // -----------------------------------------------------------------
 
-  bot.command("list", async (ctx) => {
-    if (!(await guardAction(ctx, "admin"))) return;
+  /** Format a single shoe line for the "show all" list view. */
+  function formatShoeLineAll(s: Shoe): string {
+    const szs = s.shoe_sizes ?? [];
+    const logSummary =
+      szs.length > 0
+        ? szs
+            .map((sz) => `${sz.us_size}:${sz.logistics_status ?? "—"}`)
+            .join(", ")
+        : "no sizes";
+    return `• [${s.status}] ${s.title.slice(0, 50)} — ${logSummary}`;
+  }
+
+  /** Format shoe lines filtered by logistics status. */
+  function formatShoesForStatus(
+    shoes: Shoe[],
+    status: LogisticsStatus
+  ): string[] {
+    const matching: string[] = [];
+    for (const s of shoes) {
+      const szs = s.shoe_sizes ?? [];
+      const atStatus = szs.filter((sz) => sz.logistics_status === status);
+      if (atStatus.length === 0) continue;
+      const sizeList = atStatus.map((sz) => `US ${sz.us_size}`).join(", ");
+      const countNote =
+        szs.length > atStatus.length
+          ? ` (${atStatus.length} of ${szs.length} sizes)`
+          : "";
+      matching.push(
+        `• ${s.title.slice(0, 45)} [${s.status}]\n  ${status}: ${sizeList}${countNote}`
+      );
+    }
+    return matching;
+  }
+
+  /** Format shoe lines filtered by US size. */
+  function formatShoesForSize(shoes: Shoe[], usSize: string): string[] {
+    const matching: string[] = [];
+    for (const s of shoes) {
+      const szs = s.shoe_sizes ?? [];
+      const sizeRow = szs.find((sz) => sz.us_size === usSize);
+      if (!sizeRow) continue;
+      const statusLabel = sizeRow.logistics_status ?? "not started";
+      matching.push(
+        `• ${s.title.slice(0, 45)} [${s.status}] — US ${usSize}: ${statusLabel}`
+      );
+    }
+    return matching;
+  }
+
+  /** Render a truncated list with a note if capped. */
+  function renderListWithCap(
+    header: string,
+    lines: string[],
+    cap: number
+  ): string {
+    const shown = lines.slice(0, cap);
+    const truncNote =
+      lines.length > cap
+        ? `\n\n(Showing first ${cap} of ${lines.length})`
+        : "";
+    return `${header}\n\n${shown.join("\n\n")}${truncNote}`;
+  }
+
+  /** Show the list-filter picker keyboard. */
+  function buildListFilterKb(): InlineKeyboard {
+    const kb = new InlineKeyboard();
+    LOGISTICS.forEach((s) => kb.text(s, `u_lf:${s}`));
+    kb.row();
+    kb.text("By size…", "u_lf:sz");
+    kb.text("Show all", "u_lf:all");
+    return kb;
+  }
+
+  /** Core handler for list filtering — shared by command args and callbacks. */
+  async function handleListResult(
+    ctx: Context,
+    filter: string
+  ): Promise<void> {
     const { shoes, error } = await getAllShoes();
     if (error) {
       await ctx.reply("Error fetching shoes.");
@@ -1137,21 +1241,130 @@ export function registerUnifiedBot(bot: Bot, entry: BotEntry): void {
       await ctx.reply("No shoes in the database.");
       return;
     }
-    const lines = shoes.map((s) => {
-      const szs = s.shoe_sizes ?? [];
-      const logSummary =
-        szs.length > 0
-          ? szs
-              .map(
-                (sz) => `${sz.us_size}:${sz.logistics_status ?? "—"}`
-              )
-              .join(", ")
-          : "no sizes";
-      return `• [${s.status}] ${s.title.slice(0, 50)} — ${logSummary}`;
-    });
+
+    const CAP = 20;
+
+    if (filter === "all") {
+      const lines = shoes.map(formatShoeLineAll);
+      await ctx.reply(renderListWithCap(`Pipeline (${shoes.length} shoes):`, lines, CAP));
+      return;
+    }
+
+    // Filter by logistics status
+    if ((LOGISTICS as string[]).includes(filter)) {
+      const status = filter as LogisticsStatus;
+      const lines = formatShoesForStatus(shoes, status);
+      if (lines.length === 0) {
+        await ctx.reply(
+          `No shoes have any size at "${status}".\n\nUse /list to pick another filter.`
+        );
+        return;
+      }
+      await ctx.reply(
+        renderListWithCap(
+          `Pipeline — "${status}" sizes (${lines.length} shoe${lines.length === 1 ? "" : "s"}):`,
+          lines,
+          CAP
+        )
+      );
+      return;
+    }
+
+    // Filter by US size (filter starts with "size:")
+    if (filter.startsWith("size:")) {
+      const usSize = filter.slice(5);
+      const lines = formatShoesForSize(shoes, usSize);
+      if (lines.length === 0) {
+        await ctx.reply(
+          `No shoes carry US ${usSize}.\n\nUse /list to pick another filter.`
+        );
+        return;
+      }
+      await ctx.reply(
+        renderListWithCap(
+          `Pipeline — shoes with US ${usSize} (${lines.length} shoe${lines.length === 1 ? "" : "s"}):`,
+          lines,
+          CAP
+        )
+      );
+      return;
+    }
+
+    // Unknown filter — show help
     await ctx.reply(
-      `Pipeline (${shoes.length} shoes):\n\n` + lines.join("\n")
+      "Unknown filter. Usage:\n" +
+        "  /list — filter buttons\n" +
+        "  /list all — full pipeline\n" +
+        "  /list <status> — e.g. /list purchased\n" +
+        "  /list size <N> — e.g. /list size 9"
     );
+  }
+
+  bot.command("list", async (ctx) => {
+    if (!(await guardAction(ctx, "admin"))) return;
+
+    const arg = (ctx.match ?? "").trim().toLowerCase();
+
+    // No args → show filter buttons
+    if (!arg) {
+      await ctx.reply(
+        "Filter the pipeline by logistics status, size, or show all:",
+        { reply_markup: buildListFilterKb() }
+      );
+      return;
+    }
+
+    // /list size <N>
+    if (arg.startsWith("size")) {
+      const sizeArg = arg.replace(/^size\s*/, "").trim();
+      if (!sizeArg) {
+        await ctx.reply(
+          "Usage: /list size <N>\nExample: /list size 9\n\nOr tap a filter button via /list"
+        );
+        return;
+      }
+      await handleListResult(ctx, `size:${sizeArg}`);
+      return;
+    }
+
+    // /list <status> or /list all
+    await handleListResult(ctx, arg);
+  });
+
+  // Callback: filter by logistics status or show all
+  bot.callbackQuery(/^u_lf:(all|in_cart|purchased|arrived|delivered)$/, async (ctx) => {
+    if (!(await guardAction(ctx, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await handleListResult(ctx, ctx.match[1]);
+  });
+
+  // Callback: show size picker grid
+  bot.callbackQuery(/^u_lf:sz$/, async (ctx) => {
+    if (!(await guardAction(ctx, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const kb = new InlineKeyboard();
+    SIZE_GRID.forEach((e, i) => {
+      kb.text(`US ${e.us}`, `u_lz:${e.us}`);
+      if ((i + 1) % 4 === 0) kb.row();
+    });
+    if (SIZE_GRID.length % 4 !== 0) kb.row();
+    await ctx.reply("Pick a US size to filter by:", { reply_markup: kb });
+  });
+
+  // Callback: filter by specific size
+  bot.callbackQuery(/^u_lz:(.+)$/, async (ctx) => {
+    if (!(await guardAction(ctx, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await handleListResult(ctx, `size:${ctx.match[1]}`);
   });
 
   // -----------------------------------------------------------------
