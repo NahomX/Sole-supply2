@@ -13,6 +13,7 @@ import type {
   Payment,
 } from "@/lib/supabase";
 import { SIZE_GRID } from "@/lib/sizes";
+import { AdminMediaManager } from "@/components/AdminMediaManager";
 
 type InterestWithEmail = {
   id: string;
@@ -419,6 +420,7 @@ export function AdminDashboard({
                   : undefined
               }
               onDelete={isAdmin ? () => deleteShoe(s.id) : undefined}
+              onRefresh={() => router.refresh()}
               staleBadge={
                 staleSet.has(s.id)
                   ? { days: staleAgeDaysById[s.id] ?? 0 }
@@ -745,6 +747,7 @@ function ShoeRow({
   onRemoveSize,
   onUpdateSizeQuantity,
   onDelete,
+  onRefresh,
   staleBadge,
 }: {
   shoe: Shoe;
@@ -758,6 +761,8 @@ function ShoeRow({
   onRemoveSize?: (usSize: string) => void;
   onUpdateSizeQuantity?: (usSize: string, currentStatus: LogisticsStatus | null, qty: number) => void;
   onDelete?: () => void;
+  /** Refresh callback for sub-components (e.g. media manager). */
+  onRefresh: () => void;
   /** If set, renders an inline amber stale badge with the age in days */
   staleBadge?: { days: number };
 }) {
@@ -938,6 +943,16 @@ function ShoeRow({
             </div>
           )}
         </div>
+      )}
+
+      {/* Images & Variants manager — admin only */}
+      {isAdmin && (
+        <AdminMediaManager
+          shoeId={shoe.id}
+          variants={shoe.shoe_variants ?? []}
+          images={shoe.shoe_images ?? []}
+          onRefresh={onRefresh}
+        />
       )}
     </div>
   );

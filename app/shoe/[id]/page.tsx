@@ -5,7 +5,8 @@ import { getSessionInfo } from "@/lib/auth";
 import { customerLabel } from "@/lib/labels";
 import { sizeGridFromSizes, sizeGrid, type SizeGridEntry } from "@/lib/sizes";
 import { InterestButton } from "@/components/InterestButton";
-import { ShoeImage } from "@/components/ShoeImage";
+import { ProductGallery } from "@/components/ProductGallery";
+import { SizeGrid } from "@/components/SizeGrid";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -16,11 +17,9 @@ const ETHIOPIC_FONT =
 async function getShoe(id: string): Promise<Shoe | null> {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL) return null;
   const db = supabaseService();
-  // Soft-removed shoes 404 like missing ones. An invalid/non-uuid id makes
-  // PostgREST error → data null → notFound, which is the behaviour we want.
   const { data } = await db
     .from("shoes")
-    .select("*, shoe_sizes(*)")
+    .select("*, shoe_sizes(*), shoe_variants(*), shoe_images(*)")
     .eq("id", id)
     .is("removed_at", null)
     .maybeSingle();
@@ -34,7 +33,7 @@ function redactForViewer(s: Shoe, isAdmin: boolean): Shoe {
   return isAdmin ? s : { ...s, url: "", price_usd: null };
 }
 
-/** "18500" → "ብር 18,500" — admin-set birr price; no USD in customer UI. */
+/** "18500" -> "birr 18,500" — admin-set birr price; no USD in customer UI. */
 function formatEtb(priceEtb: number): string {
   return `ብር ${Number(priceEtb).toLocaleString("en-US", {
     maximumFractionDigits: 2,
@@ -79,9 +78,9 @@ export default async function ShoeDetailsPage({
   const isComingSoon = section === "coming-soon";
   const pill =
     section === "in-stock"
-      ? { text: "● In stock", className: "bg-emerald-900/40 text-emerald-400" }
+      ? { text: "In stock", className: "bg-emerald-900/40 text-emerald-400" }
       : section === "on-the-way"
-      ? { text: "✈ On the way", className: "bg-amber-900/40 text-amber-400" }
+      ? { text: "On the way", className: "bg-amber-900/40 text-amber-400" }
       : section === "previously"
       ? { text: "Sold", className: "bg-neutral-800 text-neutral-400" }
       : { text: "Coming soon", className: "bg-neutral-800/50 text-neutral-400" };
@@ -97,37 +96,25 @@ export default async function ShoeDetailsPage({
         href="/"
         className="inline-flex items-center gap-1.5 text-[13.5px] font-bold text-th-muted hover:text-white transition-colors"
       >
-        ← Back to the drop
+        &larr; Back to the drop
       </Link>
 
       <div className="mt-6 grid lg:grid-cols-2 gap-8 lg:gap-12 items-start">
         {/* ----- Media column ----- */}
         <div>
-          <div
-            className="relative border border-th-border rounded-[24px] overflow-hidden flex items-center justify-center"
-            style={{
-              aspectRatio: "1 / 1",
-              background:
-                "radial-gradient(circle at 50% 38%, #1a1a1a 0%, #111111 100%)",
-            }}
-          >
-            <ShoeImage
-              src={shoe.image_url}
-              alt={shoe.title}
-              className="w-[92%] max-h-full object-contain"
-            />
-            <span
-              className={`absolute top-4 left-4 text-[10.5px] font-extrabold uppercase tracking-[0.1em] px-3 py-1.5 rounded-full ${pill.className}`}
-            >
-              {pill.text}
-            </span>
-          </div>
+          <ProductGallery
+            fallbackImageUrl={shoe.image_url}
+            images={shoe.shoe_images ?? []}
+            variants={shoe.shoe_variants ?? []}
+            title={shoe.title}
+            statusPill={pill}
+          />
 
           {/* Hands-on video — only when an admin attached one (video_url). */}
           {shoe.video_url && (
             <div className="mt-5">
               <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-th-muted mb-2">
-                Hands-on video ·{" "}
+                Hands-on video &middot;{" "}
                 <span
                   lang="am"
                   className="normal-case tracking-normal"
@@ -172,63 +159,19 @@ export default async function ShoeDetailsPage({
                 href="/#visit"
                 className="inline-flex items-center text-[13px] font-extrabold border-[1.5px] border-th-border hover:border-white/60 rounded-full px-4 py-2 bg-surface-2 text-th-muted"
               >
-                ☎ Contact for price
+                Contact for price
               </Link>
             )}
           </div>
 
-          {/* Per-size availability */}
+          {/* Per-size availability — interactive client grid */}
           {entries.length > 0 ? (
             <div className="mt-7">
-              <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-th-muted mb-2.5">
-                {isComingSoon ? "Coming in US sizes" : "US sizes"} ·{" "}
-                <span
-                  lang="am"
-                  className="normal-case tracking-normal"
-                  style={{ fontFamily: ETHIOPIC_FONT }}
-                >
-                  መጠን
-                </span>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {entries.map((e) => {
-                  const state = e.customerState ?? "coming-soon";
-                  const chip =
-                    state === "in-stock"
-                      ? "border-emerald-500/40 bg-emerald-900/30 text-emerald-400"
-                      : state === "on-the-way"
-                      ? "border-amber-500/40 bg-amber-900/30 text-amber-400"
-                      : state === "sold-out"
-                      ? "border-th-border bg-neutral-800/50 text-neutral-500 line-through"
-                      : "border-th-border bg-surface-2 text-th-muted";
-                  const stateText =
-                    state === "in-stock"
-                      ? "In stock"
-                      : state === "on-the-way"
-                      ? "On the way"
-                      : state === "sold-out"
-                      ? "Sold out"
-                      : "Coming soon";
-                  return (
-                    <span
-                      key={e.us}
-                      title={`US ${e.us} / EU ${e.eu} — ${stateText}`}
-                      className={`inline-flex flex-col items-center border-[1.5px] rounded-xl px-3 py-2 ${chip}`}
-                    >
-                      <span className="text-sm font-extrabold leading-none">
-                        US {e.us}
-                      </span>
-                      <span className="text-[10px] font-semibold mt-1 leading-none opacity-80">
-                        {stateText}
-                      </span>
-                    </span>
-                  );
-                })}
-              </div>
+              <SizeGrid entries={entries} isComingSoon={isComingSoon} />
             </div>
           ) : shoe.sizes && shoe.sizes.trim() ? (
             <p className="mt-7 text-sm text-th-muted italic">
-              Sizes TBA ·{" "}
+              Sizes TBA &middot;{" "}
               <span lang="am" style={{ fontFamily: ETHIOPIC_FONT }}>
                 መጠን በቅርቡ
               </span>
@@ -274,7 +217,7 @@ export default async function ShoeDetailsPage({
                   rel="noreferrer noopener"
                   className="text-blue-400 hover:underline"
                 >
-                  Producer site →
+                  Producer site &rarr;
                 </a>
               )}
             </div>

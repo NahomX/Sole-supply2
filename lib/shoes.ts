@@ -881,7 +881,7 @@ export async function getPublicShoes(filter?: {
   const db = supabaseService();
   let q = db
     .from("shoes")
-    .select("id,title,brand,image_url,price_usd,price_etb,video_url,sizes,notes,status,created_at,shoe_sizes(*)")
+    .select("id,title,brand,image_url,price_usd,price_etb,video_url,sizes,notes,status,created_at,shoe_sizes(*),shoe_variants(*),shoe_images(*)")
     .is("removed_at", null)
     .order("created_at", { ascending: false });
   if (filter?.status) {

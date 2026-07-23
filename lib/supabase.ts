@@ -44,6 +44,10 @@ export type Shoe = {
   created_at: string;
   /** Populated when the query joins shoe_sizes (e.g. getPublicShoes, getAllShoes). */
   shoe_sizes?: ShoeSize[];
+  /** Populated when the query joins shoe_variants. */
+  shoe_variants?: ShoeVariant[];
+  /** Populated when the query joins shoe_images. */
+  shoe_images?: ShoeImage[];
 };
 
 /** One row in shoe_sizes — one size of a shoe + its logistics status. */
@@ -91,6 +95,41 @@ export type ShoeEvent = {
   actor: string | null;
   /** Source channel: 'web', 'incart', 'purchaser', 'work', 'agent', etc. */
   source: string | null;
+  created_at: string;
+};
+
+/** Allowed view types for shoe_images (must match DB check constraint). */
+export type ShoeImageViewType =
+  | "hero"
+  | "zoom"
+  | "side"
+  | "top"
+  | "back"
+  | "sole"
+  | "lifestyle";
+
+/** One row in shoe_variants — a selectable color option for storefront display. */
+export type ShoeVariant = {
+  id: string;
+  shoe_id: string;
+  color_name: string;
+  /** Hex color string for the swatch, e.g. "#FF0000". Nullable. */
+  swatch_hex: string | null;
+  /** URL of a swatch image (alternative to solid hex). Nullable. */
+  swatch_image_url: string | null;
+  sort_order: number;
+  created_at: string;
+};
+
+/** One row in shoe_images — a single image in a shoe's multi-view gallery. */
+export type ShoeImage = {
+  id: string;
+  shoe_id: string;
+  /** null = applies to base shoe / all variants. */
+  variant_id: string | null;
+  url: string;
+  view_type: ShoeImageViewType;
+  sort_order: number;
   created_at: string;
 };
 
