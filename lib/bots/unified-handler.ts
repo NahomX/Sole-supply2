@@ -75,6 +75,9 @@
  *   u_ny                           — confirm
  *   u_nn                           — cancel
  *
+ * Shipper reminder:
+ *   u_sr                           — open arrive flow (from cron DM)
+ *
  * Longest: u_lt:{36}:{4}:{9} = 56 bytes. All within 64-byte limit.
  */
 
@@ -847,6 +850,45 @@ export function registerUnifiedBot(bot: Bot, entry: BotEntry): void {
     await ctx.editMessageReplyMarkup({
       reply_markup: { inline_keyboard: [] },
     });
+  });
+
+  // -----------------------------------------------------------------
+  // u_sr — shipper reminder confirm button (shipper+)
+  //
+  // When a shipper taps "I've shipped these" in the cron DM reminder,
+  // this handler presents the same shoe picker that /arrive produces so
+  // the shipper can confirm exactly which sizes were shipped (supports
+  // partial shipments). All subsequent callbacks (u_pk:a, u_sz:a,
+  // u_go:a, u_al:a) are already wired and work in private DMs.
+  // -----------------------------------------------------------------
+  bot.callbackQuery(/^u_sr$/, async (ctx) => {
+    if (!(await guardAction(ctx, "shipper"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const config = FLOW_CONFIGS["a"]; // arrive flow: purchased → arrived
+    const { shoes, error } = await getShoesByLogistics(config.fromStatus);
+    if (error) {
+      await ctx.reply("Error fetching shoes.");
+      return;
+    }
+    if (shoes.length === 0) {
+      await ctx.reply(
+        `No shoes with any size at "${config.fromStatus}" right now. All caught up!`
+      );
+      return;
+    }
+    const kb = new InlineKeyboard();
+    shoes.slice(0, 20).forEach((s) => {
+      const brand = s.brand ? `[${s.brand}] ` : "";
+      const label = `${brand}${s.title}`.slice(0, 40);
+      kb.text(label, `u_pk:a:${s.id}`).row();
+    });
+    await ctx.reply(
+      `${config.listLabel} (${shoes.length})\nTap a shoe to select sizes:`,
+      { reply_markup: kb }
+    );
   });
 
   // -----------------------------------------------------------------

@@ -20,10 +20,12 @@ export async function sendTelegramMessage(
   chatId: string | number,
   text: string,
   parseMode?: "HTML" | "MarkdownV2",
-  timeoutMs?: number
+  timeoutMs?: number,
+  replyMarkup?: Record<string, unknown>
 ): Promise<boolean> {
   const body: Record<string, unknown> = { chat_id: chatId, text };
   if (parseMode) body.parse_mode = parseMode;
+  if (replyMarkup) body.reply_markup = replyMarkup;
 
   let controller: AbortController | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;

@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/stale-digest",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/shipper-reminders",
+      "schedule": "0 8 */3 * *"
     }
   ]
 }
