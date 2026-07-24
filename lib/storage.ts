@@ -12,6 +12,9 @@ import { supabaseService } from "@/lib/supabase";
 /** Public-read bucket holding per-shoe hands-on videos (migration 0012). */
 const SHOE_VIDEOS_BUCKET = "shoe-videos";
 
+/** Public-read bucket holding per-shoe product photos (migration 0016). */
+const SHOE_PHOTOS_BUCKET = "shoe-photos";
+
 export type UploadResult =
   | { url: string; error: null }
   | { url: null; error: string };
@@ -39,6 +42,36 @@ export async function uploadShoeVideo(
   if (error) return { url: null, error: error.message };
 
   const { data: pub } = db.storage.from(SHOE_VIDEOS_BUCKET).getPublicUrl(path);
+  if (!pub?.publicUrl) {
+    return { url: null, error: "could not resolve public URL" };
+  }
+  return { url: `${pub.publicUrl}?v=${Date.now()}`, error: null };
+}
+
+/**
+ * Upload (or replace) a product photo for a shoe at a specific view type.
+ *
+ * Stores the object at `<shoeId>/<viewType>.jpg` with upsert, so re-uploading
+ * for the same shoe+view replaces in place. Returns the bucket's public URL
+ * with a `?v=<timestamp>` cache-buster — the path is stable across re-uploads
+ * and the storage CDN caches public objects, so the query param ensures
+ * clients fetch the new photo after a replacement.
+ */
+export async function uploadShoePhoto(
+  shoeId: string,
+  viewType: string,
+  data: Buffer | ArrayBuffer,
+  contentType = "image/jpeg"
+): Promise<UploadResult> {
+  const db = supabaseService();
+  const path = `${shoeId}/${viewType}.jpg`;
+
+  const { error } = await db.storage
+    .from(SHOE_PHOTOS_BUCKET)
+    .upload(path, data, { contentType, upsert: true });
+  if (error) return { url: null, error: error.message };
+
+  const { data: pub } = db.storage.from(SHOE_PHOTOS_BUCKET).getPublicUrl(path);
   if (!pub?.publicUrl) {
     return { url: null, error: "could not resolve public URL" };
   }
