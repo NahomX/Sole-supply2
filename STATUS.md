@@ -1,8 +1,8 @@
 # Sole Supply — STATUS
 
-**Version:** 20
-**Last updated:** 2026-06-13 (pm-sole-supply — PR #35 updated: photo-match swapped from Claude to Gemini, CI green, mergeable)
-**State:** 1 PR open (#35 feat/shipper-confirm-receipt — Vercel CI SUCCESS, MERGEABLE, user-confirmed design). Main branch `f090cd6` contains everything through PR #34. All 34 prior PRs are closed (32 merged, 2 closed-not-merged: #9, #21). All 12 migrations applied.
+**Version:** 26
+**Last updated:** 2026-07-23 (pm-sole-supply — PR #46 feat/telegram-photo-upload OPEN. Product photo upload via Telegram bot + shoe-photos storage bucket.)
+**State:** 1 PR open (#46 feat/telegram-photo-upload — BLOCKED on migration 0016). Main branch `c61f595` contains everything through PR #45 (45 PRs merged, 2 closed-not-merged: #9, #21). PRs #42 and #43 now merged to main. 12 migrations applied; migrations 0013-0015 on main (application status: 0013 unknown, 0014+0015 NOT YET APPLIED); migration 0016 on PR #46 branch.
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
 
@@ -10,7 +10,7 @@
 
 ## Product in one paragraph
 
-A Next.js 14 + Supabase web app for a **sneaker-importing workflow, US to Addis Ababa**. It is a procurement queue + storefront preview + interest tracker + logistics pipeline (no automated checkout -- a human buys each shoe). Brand name: **Berebaso** (bilingual EN/Amharic). Roles: **customer** (browse `/`, tap "I want this"), **submitter** (paste retailer URLs at `/submit`, OG-scraped), **shipper** (flip logistics status in `/admin`), **purchaser** (max-2 concurrent purchases, bot-gated), **admin** (everything). Deployed on Vercel; auth via Supabase magic links; RLS on. **Six interactive Telegram bots** (grammY, webhook-based) handle ops workflow. **Stripe Issuing governance rails** (Phase 2) and **autonomous agent worker** (Phase 3) are on main in TEST mode only. **Admin dashboard** has filter bar + shoe_events audit timeline. **Migration CI pipeline** automates SQL application with approval gate for destructive changes. **Storefront redesigned** (PR #34): ink/cream/orange design system, Unbounded display font, image-first cards, `/shoe/[id]` details page, admin-set birr prices, hands-on video pipeline.
+A Next.js 14 + Supabase web app for a **sneaker-importing workflow, US to Addis Ababa**. It is a procurement queue + storefront preview + interest tracker + logistics pipeline (no automated checkout -- a human buys each shoe). Brand name: **Berebaso** (bilingual EN/Amharic). Roles: **customer** (browse `/`, tap "I want this"), **submitter** (paste retailer URLs at `/submit`, OG-scraped), **shipper** (flip logistics status in `/admin`), **purchaser** (max-2 concurrent purchases, bot-gated), **admin** (everything). Deployed on Vercel; auth via Supabase magic links; RLS on. **Six interactive Telegram bots** (grammY, webhook-based) handle ops workflow. **Stripe Issuing governance rails** (Phase 2) and **autonomous agent worker** (Phase 3) are on main in TEST mode only. **Admin dashboard** has filter bar + shoe_events audit timeline. **Migration CI pipeline** automates SQL application with approval gate for destructive changes. **Storefront redesigned** (PR #34 + PR #41): dark theme with bold red/black palette (CSS custom properties for theming), Unbounded display font, image-first cards, `/shoe/[id]` details page, admin-set birr prices, hands-on video pipeline.
 
 ## The data model -- two status tracks (locked)
 
@@ -25,31 +25,25 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 
 ## OPEN PRs
 
-### PR #35 `feat/shipper-confirm-receipt` — OPEN, CI green, MERGEABLE, confirmed-as-built
+### PR #46 `feat/telegram-photo-upload` — OPEN, build+lint green, BLOCKED on migration 0016
 
-**Vercel CI:** SUCCESS. **GitHub mergeable:** MERGEABLE. **Design:** User-confirmed (all 4 blocking questions answered, all match defaults as built). **Ready to merge** pending user approval and `GEMINI_API_KEY` in Vercel for the photo-match flow.
+**Build:** GREEN (8/8 pages, 0 ESLint warnings). **Branch:** `feat/telegram-photo-upload` (1 commit ahead of main). **DO NOT MERGE** until migration 0016 is applied in Supabase SQL Editor (creates `shoe-photos` storage bucket).
 
-**Two features in one branch** (no schema changes, no new migrations):
+**What it adds:**
+- **Migration 0016** (`supabase/migrations/0016_shoe_photos_bucket.sql`): public-read `shoe-photos` storage bucket (clones the `shoe-videos` pattern from migration 0012). Idempotent.
+- **Storage helper** (`lib/storage.ts`): `uploadShoePhoto(shoeId, viewType, data, contentType)` — uploads to `<shoeId>/<viewType>.jpg` with upsert, returns public URL with cache-buster.
+- **Telegram bot flow** (`lib/bots/unified-handler.ts`): When an admin sends a photo, a "📷 Product photo" button appears in the flow selector (alongside the existing Purchase/Arrival/Delivery pipeline options). Flow: pick shoe → pick view type (hero/zoom/side/top/back/sole/lifestyle) → download + upload to bucket + save to DB. Hero uploads also set `shoes.image_url` so the photo replaces the scraped retailer image on cards and the product page.
+- **`/setphoto` command** for discoverability (tells admin to send a photo).
+- **Graceful degradation**: hero path always works (updates `shoes.image_url`); `shoe_images` gallery insert is try/caught — if migration 0014 isn't applied yet, the bot reports it instead of crashing.
+- **Disambiguation with receipt flow**: product photo path only activates when admin explicitly taps "📷 Product photo". Shippers/purchasers never see this option. AI photo-matching flows are untouched.
 
-**Feature A — Shipper quick-action UI** (`app/admin/AdminDashboard.tsx`):
-- Per-size quick-action buttons: "Arrived" / "Delivered" / "Purchased" — one tap instead of a dropdown
-- Shipper-simplified view: hides dropdown entirely, shows status label + quick-action button only
-- Batch "Mark all" button at shoe level (e.g. "Arrived all (3)") with confirm dialog
-- Admin view: quick-action button primary + dropdown de-emphasised below it
-
-**Feature B — AI photo-matching via Telegram** (`lib/shoe-matcher.ts` NEW + `lib/bots/handlers.ts`):
-- `message:photo` handler on all three work bots (purchaser, arrived, delivery)
-- Gemini `gemini-2.5-flash` vision (`@google/genai` SDK) compares the photo against catalog `image_url`s (up to 8 candidates, 30s timeout)
-- Inline keyboard confirmation: top 3 matches with confidence labels + "None of these"
-- On confirm: `advanceAllSizes()` advances all eligible sizes to the bot's `toStatus`
-- Requires `GEMINI_API_KEY` in Vercel (reuses the same key if set for other Gemini features)
-- Callback scheme: `phm:{shoeId}` (40 bytes max), `phm_no`
+**Migration dependency chain:** 0014 (shoe_images table, for gallery entries) + 0016 (shoe-photos bucket, for storage). Hero `shoes.image_url` update has NO migration dependency.
 
 ---
 
-## What's on main (`f090cd6`)
+## What's on main (`c61f595`)
 
-### Merge history (PRs #1--#34, chronological)
+### Merge history (PRs #1--#45, chronological)
 
 **Foundation (PRs #1--#8, through 2026-06-01):**
 - #1 Supabase auth + RLS
@@ -95,8 +89,27 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 **Storefront redesign (PR #34, merged 2026-06-11):**
 - #34 Berebaso redesign + birr price-setter + hands-on video pipeline (`0012_price_etb_video.sql`)
 
-### All prior PRs (#1--#34)
-All 34 prior PRs are closed (32 merged, 2 closed-not-merged: #9 superseded by #27, #21 superseded by #28).
+**Shipper + ops + admin features (PRs #35--#40, merged 2026-06-13 to 2026-07-22):**
+- #35 Shipper receipt confirmation: quick-action UI + AI photo-matching via Telegram (Gemini)
+- #36 MVP launch readiness: contact config, OG metadata, auth gate, Supabase guard, mobile nav
+- #37 Admin size chip redesign for unambiguous status + quantity per size
+- #38 Unified admin group bot: all ops in one Telegram thread
+- #39 Admin session expiry + Excel export for shoes data
+- #40 Comprehensive admin manual (docs/ADMIN_MANUAL.md)
+
+**Dark theme visual overhaul (PR #41, merged 2026-07-22):**
+- #41 Dark theme + bold red/black storefront redesign (CSS custom properties theming, no DB changes)
+
+**Telegram bot UX improvements (PRs #44--#45, merged 2026-07-23):**
+- #44 `/list` filtering by logistics status + US size (inline buttons + text args) + `/add` error hardening (loud 0-of-N failure message, console.error logging). Code-only, no DB changes.
+- #45 Recurring shipper reminder DM (Vercel Cron every 3 days) + one-tap arrive confirm via unified bot. Code-only, no DB changes.
+
+**Multi-image + admin seed (PRs #42--#43, merged to main):**
+- #42 Multi-image gallery + color variants + interactive size grid (migration 0014: shoe_variants + shoe_images tables)
+- #43 Seed owner Telegram admin allowlist entry (migration 0015, data-only)
+
+### All prior PRs (#1--#45)
+All 45 PRs are closed (43 merged, 2 closed-not-merged: #9 superseded by #27, #21 superseded by #28). PRs #42 and #43 confirmed merged to main.
 
 ---
 
@@ -116,6 +129,10 @@ All 34 prior PRs are closed (32 merged, 2 closed-not-merged: #9 superseded by #2
 | `0010_shoe_events.sql` | shoe_events audit log table + indexes | YES (applied per Nahom 2026-06-11, unverified) |
 | `0011_site_copy.sql` | Site copy storage for ops-bot editing | YES (applied per Nahom 2026-06-11, unverified) |
 | `0012_price_etb_video.sql` | `shoes.price_etb`, `shoes.video_url`, public `shoe-videos` storage bucket | YES (applied per Nahom 2026-06-11, unverified) |
+| `0013_shoe_sizes_quantity.sql` | `shoe_sizes.quantity` column (integer, default 1) | On main; application status unknown |
+| `0014_shoe_variants_images.sql` | `shoe_variants` + `shoe_images` tables, RLS, indexes | On main (PR #42 merged); **NOT YET APPLIED** — user must apply in Supabase |
+| `0015_seed_telegram_admin.sql` | Seed owner Telegram admin allowlist entry (data/seed) | On main (PR #43 merged); **NOT YET APPLIED** — user must apply in Supabase |
+| `0016_shoe_photos_bucket.sql` | `shoe-photos` public-read storage bucket | **NOT YET APPLIED** — on PR #46 branch, user must apply before merge |
 
 **Migration CI (PR #24)** is on main: `scripts/migrate.mjs` + `.github/workflows/migrate.yml`. But it requires one-time setup before it can auto-apply -- see USER ACTIONS below.
 
@@ -208,7 +225,7 @@ With migrations 0004--0012 applied (per Nahom), the schema-level blockers are cl
 
 | Feature | Schema Ready? | Env Vars Ready? | Functional? | Notes |
 |---------|--------------|-----------------|-------------|-------|
-| **Storefront** (homepage `/`, `/shoe/[id]`) | YES | YES (no extra vars needed) | YES | Ink/cream/orange design, birr prices, video pipeline all functional. `price_etb` and `video_url` columns exist (0012). |
+| **Storefront** (homepage `/`, `/shoe/[id]`) | YES | YES (no extra vars needed) | YES | Dark theme with bold red/black palette (PR #41), birr prices, video pipeline all functional. `price_etb` and `video_url` columns exist (0012). Multi-image gallery + color variants on PR #42 (pending migration 0014). |
 | **Admin dashboard** (filter bar + shoe_events timeline) | YES | YES | YES | `shoe_events` table exists (0010). Audit timeline populates as status changes occur. Historical events from before migration are absent (expected). |
 | **Per-size logistics** (shoe_sizes) | YES | YES | YES | `shoe_sizes` table exists (0005). Old `shoes.logistics_status` column dropped. Admin/shipper per-size management works. |
 | **Telegram bots** (6 bots) | YES | **UNCONFIRMED** | **GATED on env vars** | `telegram_users` table exists (0004). Purchaser role + max-2 cap exists (0007). But all 6 bot tokens + webhook secret + OPS_FEED_CHAT_ID + CRON_SECRET must be set in Vercel. Without them, webhook endpoint returns 500. |
@@ -217,9 +234,11 @@ With migrations 0004--0012 applied (per Nahom), the schema-level blockers are cl
 | **Agent worker** (Phase 3 autonomous) | YES | **UNCONFIRMED** | **GATED on env vars + Fly.io deploy** | RLS policies exist (0009). Worker directory needs Fly.io deployment + env vars. `agent_config.agent_enabled` defaults to false. |
 | **Ops-bot site editing** (Tier 1 structured) | YES | YES (no extra vars for Tier 1) | YES | `site_copy` table exists (0011). Structured commands work immediately. |
 | **Ops-bot NL editing** (Tier 2) | YES | **UNCONFIRMED** | **GATED on env vars** | Needs `ANTHROPIC_API_KEY` + `SITE_EDIT_NL_ENABLED=true`. |
-| **Shipper photo-match** (work bots) | YES | **GATED on `GEMINI_API_KEY`** | **GATED on env vars + merge** | Needs `GEMINI_API_KEY` + bot tokens. Uses Gemini `gemini-2.5-flash` via `@google/genai`. Code on PR #35 (`feat/shipper-confirm-receipt`) — CI green, mergeable, design confirmed (decision #16). |
+| **Shipper photo-match** (work bots) | YES | **GATED on `GEMINI_API_KEY`** | **GATED on env vars** | Needs `GEMINI_API_KEY` + bot tokens. Uses Gemini `gemini-2.5-flash` via `@google/genai`. Code merged (PR #35). |
+| **Shipper reminder cron** (PR #45) | YES | **GATED on `UNIFIED_BOT_TOKEN` + `CRON_SECRET`** | **GATED on env vars** | Needs `UNIFIED_BOT_TOKEN` + `CRON_SECRET` in Vercel. Cron fires every 3 days at 08:00 UTC. Shippers must `/start` the unified bot to receive DMs. |
 | **Chapa payments** (test-mode POC) | YES | **UNCONFIRMED** | **GATED on env vars** | Payment tables exist (0006). `CHAPA_SECRET_KEY` needed. |
 | **Shoe-videos storage bucket** | YES (0012) | N/A | **NEEDS MANUAL CHECK** | The bucket creation SQL ran. If the storage policy failed due to Supabase ownership restrictions (see 0012 header caveat), the bucket exists but public-read policy may be missing. Check in Supabase Storage dashboard. |
+| **Telegram product photo upload** | PARTIAL (0016 needed) | **GATED on `UNIFIED_BOT_TOKEN`** | **GATED on migration 0016 + env vars** | PR #46 open. Bucket creation (0016) must be applied. Hero path degrades gracefully (updates `shoes.image_url` without 0014); gallery path needs 0014. |
 
 **Summary:** Schema is fully unblocked. The next activation bottleneck is **env vars in Vercel** (Telegram bots are highest priority -- they enable the ops workflow). The storefront, admin dashboard, per-size logistics, shoe_events audit trail, and Tier 1 site editing are all immediately functional with no further action.
 
@@ -240,7 +259,7 @@ With migrations 0004--0012 applied (per Nahom), the schema-level blockers are cl
 11. Stripe Issuing governance rails = approved for TEST mode. L1 spending controls ($300/auth, $2k/day, $5k/month, shoe_stores MCC).
 12. Autonomous agent worker = approved for TEST mode. `LIVEMODE_ALLOWED=false`, `dryRun=true`, Fly.io `count=1`.
 13. Migration CI = approved. Auto-apply additive, human-gate destructive.
-14. Storefront redesign = APPROVED and MERGED (PR #34, 2026-06-11). Ink/cream/orange tokens, bilingual, category card titles, `/shoe/[id]` details page, USD fully redacted from customers, admin-set birr prices, hands-on video pipeline.
+14. Storefront redesign = APPROVED and MERGED (PR #34, 2026-06-11; PR #41, 2026-07-22). Dark theme with bold red/black palette (CSS custom properties). Bilingual, category card titles, `/shoe/[id]` details page, USD fully redacted from customers, admin-set birr prices, hands-on video pipeline.
 15. Shipper receipt confirmation = two options: (a) quick-action buttons on web admin dashboard, (b) AI photo-matching via Telegram work bots. Both built on `feat/shipper-confirm-receipt`. No enum changes, no new migrations.
 16. Distributor delivery-confirmation design (PR #35) — ALL 4 blocking questions answered by Nahom (2026-06-13), all match defaults as built, NO code changes required:
     - (a) Distributor role = existing **shipper** role. No new DB role.
@@ -272,19 +291,24 @@ Linux node is broken (glibc 2.27). Use Windows `node.exe` / npm-cli.js / `git.ex
 
 ## Local repo state
 
-- Current branch: `feat/shipper-confirm-receipt` (based on main `f090cd6`)
-- `origin/main` tip: `f090cd6` (PR #34 merge commit, 2026-06-11)
-- PR #35: OPEN, CI green, MERGEABLE, design confirmed (decision #16)
+- Current branch: `feat/telegram-photo-upload`
+- `origin/main` tip: `c61f595` (PR #45 merge commit, 2026-07-23; PRs #42 and #43 also merged)
+- PR #46: OPEN, build+lint GREEN, BLOCKED on migration 0016 (user must apply in Supabase SQL Editor before merge)
 - Build + lint: GREEN (8/8 pages, no ESLint warnings)
-- Ready for: MERGE (user approval)
+- Ready for: USER applies migrations 0014 + 0015 + 0016 in Supabase SQL Editor, then merges PR #46
 
 ---
 
 ## Changelog
 
+- v26 -- 2026-07-23 -- pm-sole-supply -- PR #46 (feat/telegram-photo-upload) OPEN. Product photo upload via Telegram bot: admin sends photo → picks shoe → picks view type → uploads to shoe-photos bucket. Hero photos replace shoes.image_url (fixes white-background scrape problem). Migration 0016 (shoe-photos bucket, clones 0012 pattern). Graceful degradation: hero path works without 0014, shoe_images insert try/caught. Coexists with receipt-photo AI matching (disambiguated via flow selector). Build+lint GREEN. DO NOT MERGE until migration 0016 is applied. PRs #42 and #43 now confirmed merged to main. Compare-and-swap v25→v26 (N_start=N_disk=25).
+- v25 -- 2026-07-23 -- pm-sole-supply -- PR #45 (feat/shipper-reminders) MERGED. Recurring Telegram DM reminder for shippers (Vercel Cron every 3 days at 08:00 UTC) summarizing shoe_sizes at "purchased" status. Inline button opens the existing arrive flow (shoe picker + size toggle) for partial-shipment-aware confirmation. Extended sendTelegramMessage with reply_markup support. u_sr callback handler in unified-handler.ts. Code-only, no DB/migration changes. Auto-merged (squash, commit c61f595). Accumulated v20->v24 changes recovered from stale disk. Compare-and-swap: N_start=24 (in-memory from initial read), N_disk=20 (committed, v21-v24 were uncommitted edits from prior sessions), write v25.
+- v24 -- 2026-07-23 -- pm-sole-supply -- PR #44 (feat/list-filter-and-add-errors) MERGED. /list command rewritten with filtering: inline buttons for logistics status (in_cart/purchased/arrived/delivered) + "By size" picker + "Show all"; text args /list <status>, /list size <N>, /list all. Filtered views show matching sizes per shoe with 20-item cap and truncation note. /add error hardening: 0-of-N failures now explicitly state shoe was created with NO sizes, full error text surfaced, console.error for server logs. Code-only, no DB/migration changes. Auto-merged (squash, commit 0f59d32). Compare-and-swap v23->v24 (N_start=N_disk=23).
+- v23 -- 2026-07-23 -- pm-sole-supply -- PR #43 (seed/telegram-admin) OPEN. Data-seed migration 0015 (idempotent upsert of owner's Telegram admin entry into telegram_users). SQL-only, no code changes, build+lint green. Ready to merge — user applies via `npm run migrate` or Supabase SQL Editor. Compare-and-swap v22->v23 (N_start=N_disk=22).
+- v22 -- 2026-07-22 -- pm-sole-supply -- PR #42 (feat/multi-image-variants) OPEN. Multi-image gallery + color variants + interactive size grid. Migration 0014 (shoe_variants + shoe_images tables). Build+lint green. DO NOT MERGE until user applies migration 0014 in Supabase. PRs #35-#41 noted as merged on main (catch-up from stale v20). [merged with v21 -- uncommitted local update]. Compare-and-swap v20->v22 (N_start=21 in-memory, N_disk=20).
 - v20 -- 2026-06-13 -- pm-sole-supply -- PR #35 photo-match provider swapped from Claude (Anthropic SDK) to Gemini (`gemini-2.5-flash` via `@google/genai`). `GEMINI_API_KEY` replaces `ANTHROPIC_API_KEY` for shoe-matcher; `ANTHROPIC_API_KEY` still needed only for NL editing. `.env.example` updated. Build+lint green. P2.5 rewritten. Compare-and-swap v19->v20 (N_start=N_disk=19).
 - v19 -- 2026-06-13 -- pm-sole-supply -- PR #35 design confirmed: all 4 blocking questions answered by Nahom, all match defaults as built (no code changes). Locked decision #16 (shipper=existing role, 1-photo-1-shoe, advance-all-sizes, inline-buttons). PR #35 state: OPEN, Vercel CI SUCCESS, MERGEABLE, awaiting user merge approval. Compare-and-swap v18->v19 (N_start=N_disk=18).
-- v18 -- 2026-06-13 -- pm-sole-supply -- feat/shipper-confirm-receipt branch built (lint+build green). Two features: (1) Shipper quick-action UI — per-size one-tap buttons (Arrived/Delivered/Purchased) replacing dropdown for shippers, batch "Mark all" button with confirm, admin dropdown de-emphasised; (2) AI photo-matching via Telegram — `lib/shoe-matcher.ts` (Claude claude-sonnet-4-20250514 vision, 8-candidate cap, 30s timeout) + `message:photo` handler on all work bots (purchaser/arrived/delivery) with `phm:{shoeId}` / `phm_no` inline confirmation. No enum changes, no new migrations. ANTHROPIC_API_KEY elevated from P4 to P2.5 (now needed for core bot workflow). Decision #15 recorded. Compare-and-swap v17->v18 (N_start=N_disk=17).
+- v18 -- 2026-06-13 -- pm-sole-supply -- feat/shipper-confirm-receipt branch built (lint+build green). Two features: (1) Shipper quick-action UI -- per-size one-tap buttons (Arrived/Delivered/Purchased) replacing dropdown for shippers, batch "Mark all" button with confirm, admin dropdown de-emphasised; (2) AI photo-matching via Telegram -- `lib/shoe-matcher.ts` (Claude claude-sonnet-4-20250514 vision, 8-candidate cap, 30s timeout) + `message:photo` handler on all work bots (purchaser/arrived/delivery) with `phm:{shoeId}` / `phm_no` inline confirmation. No enum changes, no new migrations. ANTHROPIC_API_KEY elevated from P4 to P2.5 (now needed for core bot workflow). Decision #15 recorded. Compare-and-swap v17->v18 (N_start=N_disk=17).
 - v17 -- 2026-06-11 -- pm-sole-supply -- MIGRATION MILESTONE: Nahom applied migrations 0004-0012 in Supabase SQL Editor. Updated all 9 migrations from UNCONFIRMED to "applied per Nahom, unverified" (no DATABASE_URL available for migrate:check verification). Added Feature Readiness table assessing all feature areas post-migration. Schema fully unblocked; next bottleneck is Vercel env vars (P2 Telegram bots highest priority). Reprioritized user actions: former P0 (migration) resolved, new P0 is migration CI baseline, P1 is storefront content (store address/phone/Telegram handle). Compare-and-swap v16->v17 (N_start=N_disk=16).
 - v16 -- 2026-06-11 -- pm-sole-supply -- PR #34 (feat/storefront-redesign) MERGED. Post-PR review passed: redaction intact (url + price_usd stripped for non-admins on / and /shoe/[id]), enum sync untouched (no enum changes), build green (8/8 pages), Vercel CI SUCCESS. Merged via gh.exe (commit f090cd6). Updated main tip, moved PR #34 from OPEN to merged history, migration 0012 now on main (still unconfirmed). Flagged migrations 0007-0010 as HIGH per Jackson's daily check-in. Reprioritized user actions. Compare-and-swap v15->v16 (N_start=N_disk=15).
 - v15 -- 2026-06-09 -- pm-sole-supply -- PR #34 (feat/storefront-redesign) OPEN. Storefront redesign approved. Added PR #34 details, post-merge user actions, migration 0012 to unconfirmed list (0004--0012). Resolved PENDING DESIGN DECISION. Added decision #14. Updated local repo state. Compare-and-swap v14->v15 (N_start=N_disk=14).

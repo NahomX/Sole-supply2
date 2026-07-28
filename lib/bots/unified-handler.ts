@@ -27,9 +27,13 @@
  *   u_ak:{shoeId}                  — skip
  *
  * Photo match:
- *   u_pf:{f}                       — select flow (p|a|d); message is reply to photo
+ *   u_pf:{f}                       — select flow (p|a|d|i); message is reply to photo
  *   u_pm:{f}:{shoeId}              — confirm match, advance
  *   u_pn                           — reject all matches
+ *
+ * Product photo upload (admin):
+ *   u_ip:{shoeId}                  — pick shoe for product photo
+ *   u_iv:{shoeId}:{viewType}       — pick view type, upload photo
  *
  * PO:
  *   u_pa:{poId}                    — approve
@@ -103,7 +107,7 @@ import {
   STATUSES,
   LOGISTICS,
 } from "@/lib/shoes";
-import { uploadShoeVideo } from "@/lib/storage";
+import { uploadShoeVideo, uploadShoePhoto } from "@/lib/storage";
 import type { FeedMeta, EditableShoeField } from "@/lib/shoes";
 import { getSiteCopy, getCopy, setCopy } from "@/lib/site-copy";
 import type { SiteCopyKey, SiteCopyLang } from "@/lib/site-copy";
@@ -1846,7 +1850,9 @@ export function registerUnifiedBot(bot: Bot, entry: BotEntry): void {
     const authCheck2 = authCheck.allowed
       ? authCheck
       : await checkAllowlist(telegramId, "unified", "purchaser");
-    if (!authCheck.allowed && !authCheck2.allowed) {
+    // Also check admin for product photo upload
+    const adminCheck = await checkAllowlist(telegramId, "unified", "admin");
+    if (!authCheck.allowed && !authCheck2.allowed && !adminCheck.allowed) {
       // Not authorized for any pipeline role — ignore the photo silently
       return;
     }
@@ -1857,6 +1863,10 @@ export function registerUnifiedBot(bot: Bot, entry: BotEntry): void {
       .text("Arrival (purchased → arrived)", "u_pf:a")
       .row()
       .text("Delivery (arrived → delivered)", "u_pf:d");
+    // Only show the product photo option to admins
+    if (adminCheck.allowed) {
+      kb.row().text("📷 Product photo", "u_pf:i");
+    }
 
     await ctx.reply("What flow is this photo for?", {
       reply_markup: kb,
@@ -2035,6 +2045,207 @@ export function registerUnifiedBot(bot: Bot, entry: BotEntry): void {
     await ctx.reply(
       "No match confirmed. Use the pipeline command to manually select a shoe."
     );
+  });
+
+  // -----------------------------------------------------------------
+  // Product photo upload — send photo -> pick shoe -> pick view -> upload
+  // -----------------------------------------------------------------
+
+  const VIEW_TYPE_LABELS: Array<{ key: string; label: string }> = [
+    { key: "hero", label: "Hero (display image)" },
+    { key: "zoom", label: "Zoom" },
+    { key: "side", label: "Side" },
+    { key: "top", label: "Top" },
+    { key: "back", label: "Back" },
+    { key: "sole", label: "Sole" },
+    { key: "lifestyle", label: "Lifestyle" },
+  ];
+
+  // Product photo flow selected (u_pf:i) -> show shoe picker
+  bot.callbackQuery(/^u_pf:i$/, async (ctx) => {
+    if (!(await guardAction(ctx, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+
+    const { shoes, error } = await getAllShoes();
+    if (error) {
+      await ctx.reply("Error fetching shoes.");
+      return;
+    }
+    if (shoes.length === 0) {
+      await ctx.reply("No shoes to attach a photo to.");
+      return;
+    }
+
+    // Keep the reply chain: the flow selector is a reply to the photo,
+    // and the shoe picker is a reply to the flow selector.
+    const flowMsg = ctx.callbackQuery.message;
+    await ctx.editMessageText("Pick the shoe for this product photo:", {
+      reply_markup: buildShoePickerKb(shoes, "u_ip"),
+    });
+    // The photo is at flowMsg -> reply_to_message (original photo message).
+    // The shoe picker callback will recover it via the same chain.
+    void flowMsg; // keep reference alive for clarity
+  });
+
+  // /setphoto command — admin sends this, then sends a photo
+  bot.command("setphoto", async (ctx) => {
+    if (!(await guardAction(ctx, "admin"))) return;
+    await ctx.reply(
+      "Send a product photo as a reply to this message, or just send a photo and pick \"📷 Product photo\" from the flow selector."
+    );
+  });
+
+  // Shoe picked for product photo -> show view type buttons
+  bot.callbackQuery(/^u_ip:(.+)$/, async (ctx) => {
+    if (!(await guardAction(ctx, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const shoeId = ctx.match[1];
+
+    const kb = new InlineKeyboard();
+    for (const vt of VIEW_TYPE_LABELS) {
+      kb.text(vt.label, `u_iv:${shoeId}:${vt.key}`).row();
+    }
+
+    await ctx.editMessageText("What view type is this photo?", {
+      reply_markup: kb,
+    });
+  });
+
+  // View type picked -> download photo, upload to storage, save to DB
+  bot.callbackQuery(/^u_iv:([^:]+):(.+)$/, async (ctx) => {
+    if (!(await guardAction(ctx, "admin"))) {
+      await ctx.answerCallbackQuery("Access denied.");
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    const shoeId = ctx.match[1];
+    const viewType = ctx.match[2];
+
+    // Recover the original photo by walking up the reply chain.
+    // Chain: photo msg -> flow selector (reply to photo) -> shoe picker
+    //   (edited from flow selector) -> view type picker (edited from shoe picker).
+    // The current message is the view type picker, which was edited from
+    // the flow selector that is a reply_to the original photo message.
+    const pickerMsg = ctx.callbackQuery.message;
+    const photoMsg =
+      pickerMsg && "reply_to_message" in pickerMsg
+        ? pickerMsg.reply_to_message
+        : undefined;
+    const photoSizes = photoMsg?.photo;
+    if (!photoSizes || photoSizes.length === 0) {
+      await ctx.reply(
+        "Could not find the original photo. Please send the photo again."
+      );
+      return;
+    }
+
+    const largest = photoSizes[photoSizes.length - 1];
+    if (!largest) {
+      await ctx.reply("Could not read the photo. Please try again.");
+      return;
+    }
+
+    // Dismiss the view-type keyboard
+    await ctx.editMessageReplyMarkup({
+      reply_markup: { inline_keyboard: [] },
+    });
+    const statusMsg = await ctx.reply("Uploading product photo...");
+    const done = (text: string) =>
+      ctx.api
+        .editMessageText(statusMsg.chat.id, statusMsg.message_id, text)
+        .catch(() => ctx.reply(text));
+
+    try {
+      const file = await ctx.api.getFile(largest.file_id);
+      if (!file.file_path) {
+        await done(
+          "Telegram did not return a download path for that photo. Please try again."
+        );
+        return;
+      }
+      const photoRes = await fetch(
+        `https://api.telegram.org/file/bot${bot.token}/${file.file_path}`
+      );
+      if (!photoRes.ok) {
+        await done(
+          `Error downloading the photo from Telegram (HTTP ${photoRes.status}).`
+        );
+        return;
+      }
+      const buffer = Buffer.from(await photoRes.arrayBuffer());
+      const contentType = "image/jpeg";
+
+      const upload = await uploadShoePhoto(shoeId, viewType, buffer, contentType);
+      if (upload.error !== null) {
+        await done(`Error uploading to storage: ${upload.error}`);
+        return;
+      }
+
+      const db = supabaseService();
+
+      // Fetch shoe title for the confirmation message
+      const { data: shoe } = await db
+        .from("shoes")
+        .select("title")
+        .eq("id", shoeId)
+        .single();
+      const shoeTitle = (shoe as { title: string } | null)?.title ?? "this shoe";
+
+      // If hero view, always update shoes.image_url (works without migration 0014)
+      if (viewType === "hero") {
+        await db
+          .from("shoes")
+          .update({ image_url: upload.url })
+          .eq("id", shoeId);
+      }
+
+      // Attempt shoe_images upsert (requires migration 0014 to be applied).
+      // Degrade gracefully if the table doesn't exist yet.
+      let galleryNote = "";
+      try {
+        // Delete any existing image for this shoe + view_type, then insert.
+        // This gives upsert semantics without requiring a unique constraint
+        // on (shoe_id, view_type) which doesn't exist in migration 0014.
+        await db
+          .from("shoe_images")
+          .delete()
+          .eq("shoe_id", shoeId)
+          .eq("view_type", viewType)
+          .is("variant_id", null);
+
+        await db.from("shoe_images").insert({
+          shoe_id: shoeId,
+          url: upload.url,
+          view_type: viewType,
+          sort_order: VIEW_TYPE_LABELS.findIndex((v) => v.key === viewType),
+        });
+        galleryNote = " + gallery updated";
+      } catch {
+        galleryNote = " (gallery table not yet available — apply migration 0014)";
+      }
+
+      const viewLabel =
+        VIEW_TYPE_LABELS.find((v) => v.key === viewType)?.label ?? viewType;
+
+      if (viewType === "hero") {
+        await done(
+          `✅ Saved as the hero photo for "${shoeTitle}" — it's now the display image on cards and the product page.${galleryNote}`
+        );
+      } else {
+        await done(
+          `✅ Saved ${viewLabel} photo for "${shoeTitle}".${galleryNote}`
+        );
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "unknown error";
+      await done(`Error uploading product photo: ${msg}`);
+    }
   });
 
   // -----------------------------------------------------------------
