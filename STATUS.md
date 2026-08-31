@@ -1,8 +1,8 @@
 # Sole Supply — STATUS
 
-**Version:** 26
-**Last updated:** 2026-07-23 (pm-sole-supply — PR #46 feat/telegram-photo-upload OPEN. Product photo upload via Telegram bot + shoe-photos storage bucket.)
-**State:** 1 PR open (#46 feat/telegram-photo-upload — BLOCKED on migration 0016). Main branch `c61f595` contains everything through PR #45 (45 PRs merged, 2 closed-not-merged: #9, #21). PRs #42 and #43 now merged to main. 12 migrations applied; migrations 0013-0015 on main (application status: 0013 unknown, 0014+0015 NOT YET APPLIED); migration 0016 on PR #46 branch.
+**Version:** 27
+**Last updated:** 2026-08-31 (pm-sole-supply — Migrations 0013-0016 applied per Nahom. PR #46 MERGED (c182bd6). 0 PRs open. Local checkout reconciled onto `main` (was stranded on stale merged branch `feat/telegram-photo-upload`).)
+**State:** 0 PRs open. Main branch `c182bd6` contains everything through PR #46 (44 merged, 2 closed-not-merged: #9, #21). All 16 migrations on main; all applied (0001-0012 applied per Nahom 2026-06-11; 0013-0016 applied per Nahom 2026-07-27; all unverified).
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
 
@@ -25,23 +25,11 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 
 ## OPEN PRs
 
-### PR #46 `feat/telegram-photo-upload` — OPEN, build+lint green, BLOCKED on migration 0016
-
-**Build:** GREEN (8/8 pages, 0 ESLint warnings). **Branch:** `feat/telegram-photo-upload` (1 commit ahead of main). **DO NOT MERGE** until migration 0016 is applied in Supabase SQL Editor (creates `shoe-photos` storage bucket).
-
-**What it adds:**
-- **Migration 0016** (`supabase/migrations/0016_shoe_photos_bucket.sql`): public-read `shoe-photos` storage bucket (clones the `shoe-videos` pattern from migration 0012). Idempotent.
-- **Storage helper** (`lib/storage.ts`): `uploadShoePhoto(shoeId, viewType, data, contentType)` — uploads to `<shoeId>/<viewType>.jpg` with upsert, returns public URL with cache-buster.
-- **Telegram bot flow** (`lib/bots/unified-handler.ts`): When an admin sends a photo, a "📷 Product photo" button appears in the flow selector (alongside the existing Purchase/Arrival/Delivery pipeline options). Flow: pick shoe → pick view type (hero/zoom/side/top/back/sole/lifestyle) → download + upload to bucket + save to DB. Hero uploads also set `shoes.image_url` so the photo replaces the scraped retailer image on cards and the product page.
-- **`/setphoto` command** for discoverability (tells admin to send a photo).
-- **Graceful degradation**: hero path always works (updates `shoes.image_url`); `shoe_images` gallery insert is try/caught — if migration 0014 isn't applied yet, the bot reports it instead of crashing.
-- **Disambiguation with receipt flow**: product photo path only activates when admin explicitly taps "📷 Product photo". Shippers/purchasers never see this option. AI photo-matching flows are untouched.
-
-**Migration dependency chain:** 0014 (shoe_images table, for gallery entries) + 0016 (shoe-photos bucket, for storage). Hero `shoes.image_url` update has NO migration dependency.
+None.
 
 ---
 
-## What's on main (`c61f595`)
+## What's on main (`c182bd6`)
 
 ### Merge history (PRs #1--#45, chronological)
 
@@ -108,8 +96,11 @@ Each enum is mirrored in **four places that must stay in sync**: the DB check co
 - #42 Multi-image gallery + color variants + interactive size grid (migration 0014: shoe_variants + shoe_images tables)
 - #43 Seed owner Telegram admin allowlist entry (migration 0015, data-only)
 
-### All prior PRs (#1--#45)
-All 45 PRs are closed (43 merged, 2 closed-not-merged: #9 superseded by #27, #21 superseded by #28). PRs #42 and #43 confirmed merged to main.
+**Telegram product photo upload (PR #46, merged 2026-07-27):**
+- #46 Product photo upload via Telegram bot: admin sends photo, picks shoe, picks view type (hero/zoom/side/top/back/sole/lifestyle), uploads to `shoe-photos` bucket. Hero photos replace `shoes.image_url`. Migration 0016 (shoe-photos bucket). Graceful degradation for gallery inserts.
+
+### All prior PRs (#1--#46)
+All 46 PRs are closed (44 merged, 2 closed-not-merged: #9 superseded by #27, #21 superseded by #28).
 
 ---
 
@@ -129,10 +120,10 @@ All 45 PRs are closed (43 merged, 2 closed-not-merged: #9 superseded by #27, #21
 | `0010_shoe_events.sql` | shoe_events audit log table + indexes | YES (applied per Nahom 2026-06-11, unverified) |
 | `0011_site_copy.sql` | Site copy storage for ops-bot editing | YES (applied per Nahom 2026-06-11, unverified) |
 | `0012_price_etb_video.sql` | `shoes.price_etb`, `shoes.video_url`, public `shoe-videos` storage bucket | YES (applied per Nahom 2026-06-11, unverified) |
-| `0013_shoe_sizes_quantity.sql` | `shoe_sizes.quantity` column (integer, default 1) | On main; application status unknown |
-| `0014_shoe_variants_images.sql` | `shoe_variants` + `shoe_images` tables, RLS, indexes | On main (PR #42 merged); **NOT YET APPLIED** — user must apply in Supabase |
-| `0015_seed_telegram_admin.sql` | Seed owner Telegram admin allowlist entry (data/seed) | On main (PR #43 merged); **NOT YET APPLIED** — user must apply in Supabase |
-| `0016_shoe_photos_bucket.sql` | `shoe-photos` public-read storage bucket | **NOT YET APPLIED** — on PR #46 branch, user must apply before merge |
+| `0013_shoe_sizes_quantity.sql` | `shoe_sizes.quantity` column (integer, default 1) | YES (applied per Nahom 2026-07-27, unverified) |
+| `0014_shoe_variants_images.sql` | `shoe_variants` + `shoe_images` tables, RLS, indexes | YES (applied per Nahom 2026-07-27, unverified) |
+| `0015_seed_telegram_admin.sql` | Seed owner Telegram admin allowlist entry (data/seed) | YES (applied per Nahom 2026-07-27, unverified) |
+| `0016_shoe_photos_bucket.sql` | `shoe-photos` public-read storage bucket | YES (applied per Nahom 2026-07-27, unverified). **Caveat:** same storage-policy ownership risk as 0012 — verify in Supabase Storage dashboard that `shoe-photos` bucket exists AND has public-read policy. |
 
 **Migration CI (PR #24)** is on main: `scripts/migrate.mjs` + `.github/workflows/migrate.yml`. But it requires one-time setup before it can auto-apply -- see USER ACTIONS below.
 
@@ -177,13 +168,13 @@ All 45 PRs are closed (43 merged, 2 closed-not-merged: #9 superseded by #27, #21
 
 ### P0 -- COMPLETED: Migration application (was HIGH -- blocking multiple features)
 
-**RESOLVED 2026-06-11.** Nahom applied migrations 0004--0012 in Supabase SQL Editor. PM cannot independently verify (no `DATABASE_URL` in this env; `npm run migrate:check` requires it). Recorded as "applied per Nahom, unverified." If any migration failed silently, the corresponding feature will surface errors at runtime (see Feature Readiness below).
+**RESOLVED 2026-06-11 (0004-0012), extended 2026-07-27 (0013-0016).** Nahom applied all 16 migrations in Supabase SQL Editor. PM cannot independently verify (no `DATABASE_URL` in this env; `npm run migrate:check` requires it). Recorded as "applied per Nahom, unverified." If any migration failed silently, the corresponding feature will surface errors at runtime (see Feature Readiness below).
 
-**Verification path (optional but recommended):** Set `DATABASE_URL` locally and run `npm run migrate:check`. The script queries the `_migrations` tracking table (if it exists) and reports any pending files. Alternatively, confirm in Supabase Table Editor that these tables exist: `telegram_users`, `shoe_sizes`, `payments`/`payment_items`, `issuing_cards`, `purchase_orders`, `shoe_events`, `site_copy`, and that `shoes` has columns `price_etb` and `video_url`.
+**Verification path (optional but recommended):** Set `DATABASE_URL` locally and run `npm run migrate:check`. Alternatively, confirm in Supabase Table Editor that these tables/columns exist: `telegram_users`, `shoe_sizes` (with `quantity` column), `payments`/`payment_items`, `issuing_cards`, `purchase_orders`, `shoe_events`, `site_copy`, `shoe_variants`, `shoe_images`, and that `shoes` has columns `price_etb` and `video_url`. Also verify in Supabase Storage that buckets `shoe-videos` and `shoe-photos` exist with public-read policies.
 
 ### P0 -- Migration CI baseline (one-time setup, prevents future manual applies)
 
-Now that all 12 migrations are applied, baseline the tracking table so future merges auto-apply via PR #24's CI:
+Now that all 16 migrations are applied, baseline the tracking table so future merges auto-apply via PR #24's CI:
 1. **Add `DATABASE_URL` repository secret** in GitHub: Settings > Secrets > Actions. Use Supabase direct/session connection string (port 5432, NOT the pooler on 6543). See `supabase/migrations/AUTOMATION.md`.
 2. **Create `production` GitHub Environment** with required reviewers: Settings > Environments > New > name `production` > enable Required reviewers > add yourself.
 3. **Run baseline once** from a machine with `DATABASE_URL` set:
@@ -225,7 +216,7 @@ With migrations 0004--0012 applied (per Nahom), the schema-level blockers are cl
 
 | Feature | Schema Ready? | Env Vars Ready? | Functional? | Notes |
 |---------|--------------|-----------------|-------------|-------|
-| **Storefront** (homepage `/`, `/shoe/[id]`) | YES | YES (no extra vars needed) | YES | Dark theme with bold red/black palette (PR #41), birr prices, video pipeline all functional. `price_etb` and `video_url` columns exist (0012). Multi-image gallery + color variants on PR #42 (pending migration 0014). |
+| **Storefront** (homepage `/`, `/shoe/[id]`) | YES | YES (no extra vars needed) | YES | Dark theme with bold red/black palette (PR #41), birr prices, video pipeline all functional. `price_etb` and `video_url` columns exist (0012). Multi-image gallery + color variants live (0014 applied, PR #42 merged). |
 | **Admin dashboard** (filter bar + shoe_events timeline) | YES | YES | YES | `shoe_events` table exists (0010). Audit timeline populates as status changes occur. Historical events from before migration are absent (expected). |
 | **Per-size logistics** (shoe_sizes) | YES | YES | YES | `shoe_sizes` table exists (0005). Old `shoes.logistics_status` column dropped. Admin/shipper per-size management works. |
 | **Telegram bots** (6 bots) | YES | **UNCONFIRMED** | **GATED on env vars** | `telegram_users` table exists (0004). Purchaser role + max-2 cap exists (0007). But all 6 bot tokens + webhook secret + OPS_FEED_CHAT_ID + CRON_SECRET must be set in Vercel. Without them, webhook endpoint returns 500. |
@@ -238,7 +229,7 @@ With migrations 0004--0012 applied (per Nahom), the schema-level blockers are cl
 | **Shipper reminder cron** (PR #45) | YES | **GATED on `UNIFIED_BOT_TOKEN` + `CRON_SECRET`** | **GATED on env vars** | Needs `UNIFIED_BOT_TOKEN` + `CRON_SECRET` in Vercel. Cron fires every 3 days at 08:00 UTC. Shippers must `/start` the unified bot to receive DMs. |
 | **Chapa payments** (test-mode POC) | YES | **UNCONFIRMED** | **GATED on env vars** | Payment tables exist (0006). `CHAPA_SECRET_KEY` needed. |
 | **Shoe-videos storage bucket** | YES (0012) | N/A | **NEEDS MANUAL CHECK** | The bucket creation SQL ran. If the storage policy failed due to Supabase ownership restrictions (see 0012 header caveat), the bucket exists but public-read policy may be missing. Check in Supabase Storage dashboard. |
-| **Telegram product photo upload** | PARTIAL (0016 needed) | **GATED on `UNIFIED_BOT_TOKEN`** | **GATED on migration 0016 + env vars** | PR #46 open. Bucket creation (0016) must be applied. Hero path degrades gracefully (updates `shoes.image_url` without 0014); gallery path needs 0014. |
+| **Telegram product photo upload** | YES (0014 + 0016 applied) | **GATED on `UNIFIED_BOT_TOKEN`** | **GATED on env vars** | PR #46 merged (c182bd6). `shoe-photos` bucket (0016) + `shoe_images` table (0014) applied. Feature fully functional once `UNIFIED_BOT_TOKEN` is set in Vercel. |
 
 **Summary:** Schema is fully unblocked. The next activation bottleneck is **env vars in Vercel** (Telegram bots are highest priority -- they enable the ops workflow). The storefront, admin dashboard, per-size logistics, shoe_events audit trail, and Tier 1 site editing are all immediately functional with no further action.
 
@@ -291,16 +282,16 @@ Linux node is broken (glibc 2.27). Use Windows `node.exe` / npm-cli.js / `git.ex
 
 ## Local repo state
 
-- Current branch: `feat/telegram-photo-upload`
-- `origin/main` tip: `c61f595` (PR #45 merge commit, 2026-07-23; PRs #42 and #43 also merged)
-- PR #46: OPEN, build+lint GREEN, BLOCKED on migration 0016 (user must apply in Supabase SQL Editor before merge)
-- Build + lint: GREEN (8/8 pages, no ESLint warnings)
-- Ready for: USER applies migrations 0014 + 0015 + 0016 in Supabase SQL Editor, then merges PR #46
+- `origin/main` tip: `c182bd6` (PR #46 merge commit, 2026-07-27)
+- 0 PRs open
+- All 16 migrations applied (per Nahom 2026-07-27, unverified)
+- Next bottleneck: Vercel env vars (`UNIFIED_BOT_TOKEN`, Telegram bot tokens, `CRON_SECRET`)
 
 ---
 
 ## Changelog
 
+- v27 -- 2026-08-31 -- pm-sole-supply -- Migrations 0013-0016 marked applied per Nahom (unverified). PR #46 (feat/telegram-photo-upload) MERGED (squash, commit c182bd6). 0 PRs open. 0016 caveat flagged: same storage-policy ownership risk as 0012 (user should verify shoe-photos bucket in Supabase Storage dashboard). All 16 migrations now on main and applied. Next bottleneck: Vercel env vars. Compare-and-swap v26->v27 (N_start=N_disk=26). **HOUSEKEEPING (2026-08-31, Jackson daily check-in, first run in 20 days):** verified via `gh.exe pr list --state all` (0 open, 46 total: 44 merged + 2 closed-not-merged) and `git.exe ls-remote` (`main`=`c182bd6`, matches). Reconciled a stranded local checkout: this v27 content had been drafted but left uncommitted on the now-merged, now-remotely-deleted branch `feat/telegram-photo-upload` (which also carried 2 commits, `fadb0db`+`2aec82f`, both fully contained in `main`'s squash merge — verified via `git diff origin/main HEAD -- . ':!STATUS.md'` = empty and `origin/main:STATUS.md` byte-identical to the branch's committed v26). Stashed the uncommitted edit, fast-forwarded local `main` to `origin/main`, popped the stash cleanly onto `main`, committing here. Local branch `feat/telegram-photo-upload` deleted (remote copy was already auto-deleted by GitHub on merge). Noted but did not touch: an unfamiliar remote branch `claude/job-matching-repo-analysis-mrri9l` appeared on origin — not created by this PM, flagged for Jackson/user awareness only.
 - v26 -- 2026-07-23 -- pm-sole-supply -- PR #46 (feat/telegram-photo-upload) OPEN. Product photo upload via Telegram bot: admin sends photo → picks shoe → picks view type → uploads to shoe-photos bucket. Hero photos replace shoes.image_url (fixes white-background scrape problem). Migration 0016 (shoe-photos bucket, clones 0012 pattern). Graceful degradation: hero path works without 0014, shoe_images insert try/caught. Coexists with receipt-photo AI matching (disambiguated via flow selector). Build+lint GREEN. DO NOT MERGE until migration 0016 is applied. PRs #42 and #43 now confirmed merged to main. Compare-and-swap v25→v26 (N_start=N_disk=25).
 - v25 -- 2026-07-23 -- pm-sole-supply -- PR #45 (feat/shipper-reminders) MERGED. Recurring Telegram DM reminder for shippers (Vercel Cron every 3 days at 08:00 UTC) summarizing shoe_sizes at "purchased" status. Inline button opens the existing arrive flow (shoe picker + size toggle) for partial-shipment-aware confirmation. Extended sendTelegramMessage with reply_markup support. u_sr callback handler in unified-handler.ts. Code-only, no DB/migration changes. Auto-merged (squash, commit c61f595). Accumulated v20->v24 changes recovered from stale disk. Compare-and-swap: N_start=24 (in-memory from initial read), N_disk=20 (committed, v21-v24 were uncommitted edits from prior sessions), write v25.
 - v24 -- 2026-07-23 -- pm-sole-supply -- PR #44 (feat/list-filter-and-add-errors) MERGED. /list command rewritten with filtering: inline buttons for logistics status (in_cart/purchased/arrived/delivered) + "By size" picker + "Show all"; text args /list <status>, /list size <N>, /list all. Filtered views show matching sizes per shoe with 20-item cap and truncation note. /add error hardening: 0-of-N failures now explicitly state shoe was created with NO sizes, full error text surfaced, console.error for server logs. Code-only, no DB/migration changes. Auto-merged (squash, commit 0f59d32). Compare-and-swap v23->v24 (N_start=N_disk=23).
