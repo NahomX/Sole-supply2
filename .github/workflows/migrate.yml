@@ -7,6 +7,12 @@ on:
     paths:
       - "supabase/migrations/**"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "check = report pending only; baseline = record ALL files as already applied (one-time, for a hand-migrated DB); apply = apply pending"
+        type: choice
+        options: [check, baseline, apply]
+        default: check
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -38,6 +44,33 @@ jobs:
         run: node scripts/migrate.mjs --check
 
   # ---------------------------------------------------------------------------
+  # Job 1b: baseline — manual only (Actions → Database Migrations → Run workflow
+  # → mode: baseline). Records every migration file as applied WITHOUT running
+  # it. Use once to onboard a database that was migrated by hand.
+  # ---------------------------------------------------------------------------
+  baseline:
+    name: Baseline (record all as applied, run nothing)
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'baseline'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Record baseline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: node scripts/migrate.mjs --baseline
+
+  # ---------------------------------------------------------------------------
   # Job 2: migrate-auto — apply additive (non-destructive) pending migrations
   # Runs only when there are pending migrations AND none are destructive.
   # No environment gate — additive migrations auto-apply on merge to main.
@@ -45,7 +78,7 @@ jobs:
   migrate-auto:
     name: Apply migrations (additive)
     needs: detect
-    if: needs.detect.outputs.pending == 'true' && needs.detect.outputs.destructive != 'true'
+    if: (github.event_name == 'push' || inputs.mode == 'apply') && needs.detect.outputs.pending == 'true' && needs.detect.outputs.destructive != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -73,7 +106,7 @@ jobs:
   migrate-gated:
     name: Apply migrations (destructive — requires approval)
     needs: detect
-    if: needs.detect.outputs.pending == 'true' && needs.detect.outputs.destructive == 'true'
+    if: (github.event_name == 'push' || inputs.mode == 'apply') && needs.detect.outputs.pending == 'true' && needs.detect.outputs.destructive == 'true'
     runs-on: ubuntu-latest
     environment: production
     steps:
