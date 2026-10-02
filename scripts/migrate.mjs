@@ -11,7 +11,9 @@
  *   node scripts/migrate.mjs --baseline  # record all files as applied without running
  *
  * Environment:
- *   DATABASE_URL — Supabase direct/session connection string (port 5432, NOT pooler).
+ *   DATABASE_URL — Supabase SESSION pooler connection string (port 5432). Not the
+ *                  transaction pooler (6543); the direct db.<ref> host is IPv6-only and
+ *                  unreachable from GitHub runners.
  *
  * The connection string is read from env and NEVER printed.
  */
@@ -222,8 +224,9 @@ async function main() {
   if (!process.env.DATABASE_URL) {
     console.error(
       "Error: DATABASE_URL environment variable is not set.\n" +
-        "Use the Supabase direct connection string (port 5432, not the pooler).\n" +
-        "Example: postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres"
+        "Use the Supabase SESSION pooler string (port 5432). GitHub runners are IPv4-only and the\n" +
+        "direct db.<ref>.supabase.co host is IPv6-only. Not the transaction pooler (port 6543).\n" +
+        "Example: postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres"
     );
     process.exit(1);
   }
