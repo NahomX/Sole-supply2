@@ -1,8 +1,8 @@
 # Sole Supply — STATUS
 
-**Version:** 27
-**Last updated:** 2026-08-31 (pm-sole-supply — Migrations 0013-0016 applied per Nahom. PR #46 MERGED (c182bd6). 0 PRs open. Local checkout reconciled onto `main` (was stranded on stale merged branch `feat/telegram-photo-upload`).)
-**State:** 0 PRs open. Main branch `c182bd6` contains everything through PR #46 (44 merged, 2 closed-not-merged: #9, #21). All 16 migrations on main; all applied (0001-0012 applied per Nahom 2026-06-11; 0013-0016 applied per Nahom 2026-07-27; all unverified).
+**Version:** 28
+**Last updated:** 2026-10-09 (pm-sole-supply -- reconcile only: PR #47 (chore/migrate-baseline-dispatch) MERGED 2026-10-02, main now `e18ce94`. Migration CI gained `workflow_dispatch` modes + session-pooler guidance; owner one-time setup reduced to 3 steps. No code work this run.)
+**State:** 0 PRs open. Main branch `e18ce94` = PR #47 (chore/migrate-baseline-dispatch, CI-only: `.github/workflows/migrate.yml` + `scripts/migrate.mjs`, no app/schema change) on top of `c182bd6`, which contains everything through PR #46 (45 merged incl. #47, 2 closed-not-merged: #9, #21). All 16 migrations on main; all applied (0001-0012 applied per Nahom 2026-06-11; 0013-0016 applied per Nahom 2026-07-27; all unverified).
 
 **Owner:** `pm-sole-supply` (sole writer of this file). **Repo:** `NahomX/Sole-supply2` (public). **Local:** `/mnt/c/Users/Nahom/Documents/claude-sandbox/sole-supply/`.
 
@@ -29,7 +29,7 @@ None.
 
 ---
 
-## What's on main (`c182bd6`)
+## What's on main (`e18ce94`; app code unchanged since `c182bd6`)
 
 ### Merge history (PRs #1--#45, chronological)
 
@@ -125,7 +125,11 @@ All 46 PRs are closed (44 merged, 2 closed-not-merged: #9 superseded by #27, #21
 | `0015_seed_telegram_admin.sql` | Seed owner Telegram admin allowlist entry (data/seed) | YES (applied per Nahom 2026-07-27, unverified) |
 | `0016_shoe_photos_bucket.sql` | `shoe-photos` public-read storage bucket | YES (applied per Nahom 2026-07-27, unverified). **Caveat:** same storage-policy ownership risk as 0012 — verify in Supabase Storage dashboard that `shoe-photos` bucket exists AND has public-read policy. |
 
-**Migration CI (PR #24)** is on main: `scripts/migrate.mjs` + `.github/workflows/migrate.yml`. But it requires one-time setup before it can auto-apply -- see USER ACTIONS below.
+**Migration CI (PR #24)** is on main: `scripts/migrate.mjs` + `.github/workflows/migrate.yml`. PR #47 (chore/migrate-baseline-dispatch, merged 2026-10-02, `e18ce94`) updated it: `migrate.yml` now has a `workflow_dispatch` `mode` input (Actions > Database Migrations > Run workflow):
+- `check` (default) -- read-only, reports pending/destructive migrations.
+- `baseline` -- new job; runs `node scripts/migrate.mjs --baseline`, recording ALL migration files as applied in `_migrations` WITHOUT running any SQL. One-time, for a hand-migrated DB.
+- `apply` -- applies pending migrations on manual dispatch (additive auto; destructive gated by the `production` environment). On push to main touching `supabase/migrations/**`, apply behaves as before.
+`DATABASE_URL` must be the **Supabase SESSION pooler string (port 5432, IPv4-friendly)**, e.g. `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres` -- NOT the transaction pooler (6543) and NOT the direct `db.<ref>.supabase.co` host (IPv6-only; GitHub runners are IPv4-only). Still needs owner one-time setup before it can auto-apply -- see USER ACTIONS below. Baseline has NOT been run (not verified).
 
 ---
 
@@ -172,18 +176,13 @@ All 46 PRs are closed (44 merged, 2 closed-not-merged: #9 superseded by #27, #21
 
 **Verification path (optional but recommended):** Set `DATABASE_URL` locally and run `npm run migrate:check`. Alternatively, confirm in Supabase Table Editor that these tables/columns exist: `telegram_users`, `shoe_sizes` (with `quantity` column), `payments`/`payment_items`, `issuing_cards`, `purchase_orders`, `shoe_events`, `site_copy`, `shoe_variants`, `shoe_images`, and that `shoes` has columns `price_etb` and `video_url`. Also verify in Supabase Storage that buckets `shoe-videos` and `shoe-photos` exist with public-read policies.
 
-### P0 -- Migration CI baseline (one-time setup, prevents future manual applies)
+### P0 -- Migration CI baseline (one-time setup, reduced by PR #47 (chore/migrate-baseline-dispatch))
 
-Now that all 16 migrations are applied, baseline the tracking table so future merges auto-apply via PR #24's CI:
-1. **Add `DATABASE_URL` repository secret** in GitHub: Settings > Secrets > Actions. Use Supabase direct/session connection string (port 5432, NOT the pooler on 6543). See `supabase/migrations/AUTOMATION.md`.
-2. **Create `production` GitHub Environment** with required reviewers: Settings > Environments > New > name `production` > enable Required reviewers > add yourself.
-3. **Run baseline once** from a machine with `DATABASE_URL` set:
-   ```
-   export DATABASE_URL="postgresql://postgres.<ref>:<password>@db.<ref>.supabase.co:5432/postgres"
-   npm ci
-   npm run migrate:baseline
-   ```
-   This records all 12 migrations in `_migrations` without re-running them. After this, any new migration file merged to main will auto-apply (additive) or gate behind an approval (destructive).
+All 16 migrations are already applied (per Nahom), so baseline the tracking table so future merges auto-apply. No local machine or `DATABASE_URL` export needed any more:
+1. **Add `DATABASE_URL` repository secret** in GitHub: Settings > Secrets > Actions, value = Supabase **session pooler** string (port 5432). Not the transaction pooler (6543), not the direct host (IPv6-only; runners can't reach it).
+2. **Create `production` GitHub Environment** with yourself as required reviewer (Settings > Environments > New) -- only needed if destructive migrations are ever expected.
+3. **Run the workflow once in `baseline` mode**: Actions > Database Migrations > Run workflow > mode: `baseline`. Records migrations 0001-0016 as applied without re-running them.
+After baseline, any new migration merged to main auto-applies (additive) or gates behind approval (destructive). Caveat: `supabase/migrations/AUTOMATION.md` may still carry the old direct-host guidance (PR #47 changed only `migrate.yml` + `migrate.mjs`) -- possible small doc follow-up.
 
 ### P1 -- Storefront content (Nahom owes these)
 
@@ -282,7 +281,7 @@ Linux node is broken (glibc 2.27). Use Windows `node.exe` / npm-cli.js / `git.ex
 
 ## Local repo state
 
-- `origin/main` tip: `c182bd6` (PR #46 merge commit, 2026-07-27)
+- `origin/main` tip: `e18ce94` (PR #47 (chore/migrate-baseline-dispatch) merge, 2026-10-02); previous app-code tip `c182bd6` (PR #46 (feat/telegram-photo-upload), 2026-07-27)
 - 0 PRs open
 - All 16 migrations applied (per Nahom 2026-07-27, unverified)
 - Next bottleneck: Vercel env vars (`UNIFIED_BOT_TOKEN`, Telegram bot tokens, `CRON_SECRET`)
@@ -291,6 +290,7 @@ Linux node is broken (glibc 2.27). Use Windows `node.exe` / npm-cli.js / `git.ex
 
 ## Changelog
 
+- v28 -- 2026-10-09 -- pm-sole-supply -- RECONCILE ONLY (Jackson ad-hoc check-in). Verified via gh.exe + git fetch: origin/main=`e18ce948be7fd5cb0463c43e93d33bb82ea2f31c`, PR #47 (chore/migrate-baseline-dispatch) MERGED 2026-10-02T00:31:28Z, 0 open PRs. Inspected real diff (2 files, +41/-5): migrate.yml adds workflow_dispatch `mode` choice (check default / baseline / apply), new `baseline` job, push|apply guards on migrate-auto/migrate-gated; migrate.mjs DATABASE_URL guidance -> session pooler 5432. Migration-CI section + P0 owner setup rewritten (3 steps). Local main fast-forwarded 3738b47->e18ce94. Local working tree has CRLF-only (EOL) noise in 3 non-STATUS files (lib/bots/unified-handler.ts, lib/storage.ts, 0016 migration) left untouched. Compare-and-swap v27->v28 (N_start=N_disk=27).
 - v27 -- 2026-08-31 -- pm-sole-supply -- Migrations 0013-0016 marked applied per Nahom (unverified). PR #46 (feat/telegram-photo-upload) MERGED (squash, commit c182bd6). 0 PRs open. 0016 caveat flagged: same storage-policy ownership risk as 0012 (user should verify shoe-photos bucket in Supabase Storage dashboard). All 16 migrations now on main and applied. Next bottleneck: Vercel env vars. Compare-and-swap v26->v27 (N_start=N_disk=26). **HOUSEKEEPING (2026-08-31, Jackson daily check-in, first run in 20 days):** verified via `gh.exe pr list --state all` (0 open, 46 total: 44 merged + 2 closed-not-merged) and `git.exe ls-remote` (`main`=`c182bd6`, matches). Reconciled a stranded local checkout: this v27 content had been drafted but left uncommitted on the now-merged, now-remotely-deleted branch `feat/telegram-photo-upload` (which also carried 2 commits, `fadb0db`+`2aec82f`, both fully contained in `main`'s squash merge — verified via `git diff origin/main HEAD -- . ':!STATUS.md'` = empty and `origin/main:STATUS.md` byte-identical to the branch's committed v26). Stashed the uncommitted edit, fast-forwarded local `main` to `origin/main`, popped the stash cleanly onto `main`, committing here. Local branch `feat/telegram-photo-upload` deleted (remote copy was already auto-deleted by GitHub on merge). Noted but did not touch: an unfamiliar remote branch `claude/job-matching-repo-analysis-mrri9l` appeared on origin — not created by this PM, flagged for Jackson/user awareness only.
 - v26 -- 2026-07-23 -- pm-sole-supply -- PR #46 (feat/telegram-photo-upload) OPEN. Product photo upload via Telegram bot: admin sends photo → picks shoe → picks view type → uploads to shoe-photos bucket. Hero photos replace shoes.image_url (fixes white-background scrape problem). Migration 0016 (shoe-photos bucket, clones 0012 pattern). Graceful degradation: hero path works without 0014, shoe_images insert try/caught. Coexists with receipt-photo AI matching (disambiguated via flow selector). Build+lint GREEN. DO NOT MERGE until migration 0016 is applied. PRs #42 and #43 now confirmed merged to main. Compare-and-swap v25→v26 (N_start=N_disk=25).
 - v25 -- 2026-07-23 -- pm-sole-supply -- PR #45 (feat/shipper-reminders) MERGED. Recurring Telegram DM reminder for shippers (Vercel Cron every 3 days at 08:00 UTC) summarizing shoe_sizes at "purchased" status. Inline button opens the existing arrive flow (shoe picker + size toggle) for partial-shipment-aware confirmation. Extended sendTelegramMessage with reply_markup support. u_sr callback handler in unified-handler.ts. Code-only, no DB/migration changes. Auto-merged (squash, commit c61f595). Accumulated v20->v24 changes recovered from stale disk. Compare-and-swap: N_start=24 (in-memory from initial read), N_disk=20 (committed, v21-v24 were uncommitted edits from prior sessions), write v25.
